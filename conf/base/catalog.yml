@@ -1,4 +1,19 @@
-# Here you can define all your data sets by using simple YAML syntax.
-#
-# Documentation for this file format can be found in "The Data Catalog"
-# Link: https://kedro.readthedocs.io/en/stable/data/data_catalog.html
+# Train features
+train_features:
+  type: pandas.ParquetDataSet
+  filepath: data/01_raw/train_data/train_data.parquet
+
+# Train Labels
+train_labels:
+  type: pandas.ParquetDataSet
+  filepath: data/01_raw/train_data/train_labels.parquet
+
+# Joined train
+train_joined:
+  type: pandas.ParquetDataSet
+  filepath: data/02_curated/train_joined.parquet
+
+# Train with my feature
+train_my_features:
+  type: pandas.ParquetDataSet
+  filepath: data/03_feature/my_features/train_my_features.parquet
