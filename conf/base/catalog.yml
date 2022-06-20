@@ -1,19 +1,32 @@
-# Train features
-train_features:
-  type: pandas.ParquetDataSet
-  filepath: data/01_raw/train_data/train_data.parquet
+# Partitioned train
+train:
+  type: PartitionedDataSet
+  path: data/01_raw/train_/train_data/
+  filename_suffix: '.parquet'
+  dataset:
+    type: pandas.ParquetDataSet
 
 # Train Labels
 train_labels:
   type: pandas.ParquetDataSet
-  filepath: data/01_raw/train_data/train_labels.parquet
+  filepath: data/01_raw/train_/train_labels/train_labels.parquet
 
-# Joined train
-train_joined:
-  type: pandas.ParquetDataSet
-  filepath: data/02_curated/train_joined.parquet
+# Partitioned joined train
+joined_train:
+  type: PartitionedDataSet
+  path: data/02_curated/train_/
+  filename_suffix: '.parquet'
+  dataset:
+    type: pandas.ParquetDataSet
+    save_args:
+      index: False
 
 # Train with my feature
-train_my_features:
-  type: pandas.ParquetDataSet
-  filepath: data/03_feature/my_features/train_my_features.parquet
+my_features_train:
+  type: PartitionedDataSet
+  path: data/03_feature/train_/
+  filename_suffix: '.parquet'
+  dataset:
+    type: pandas.ParquetDataSet
+    save_args:
+      index: False

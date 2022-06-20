@@ -12,15 +12,15 @@ def create_pipeline(**kwargs) -> Pipeline:
     return pipeline([
         node(
             func=join_train_with_labels,
-            inputs=["train_features", "train_labels"],
-            outputs="train_joined",
+            inputs=["train", "train_labels"],
+            outputs="joined_train",
             name="joinTrainWithLabels"
             ),
 
         node(
             func=make_my_features,
-            inputs=["train_joined", "params:target_col", "params:top_ratio"],
-            outputs="train_my_features",
+            inputs=["joined_train", "params:target_col", "params:top_ratio"],
+            outputs="my_features_train",
             name="makeMyFeatures"
             ),
 
