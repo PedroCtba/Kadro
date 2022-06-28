@@ -1,0 +1,98 @@
+artifact_path: model
+flavors:
+  lightgbm:
+    code: null
+    data: model.pkl
+    lgb_version: 3.3.2
+    model_class: lightgbm.sklearn.LGBMClassifier
+  python_function:
+    data: model.pkl
+    env: conda.yaml
+    loader_module: mlflow.lightgbm
+    python_version: 3.10.4
+mlflow_version: 1.26.1
+model_uuid: 93cb741b46c64849b182c975654f16b5
+run_id: ec0d424130634aefbff5198e5dd941d2
+saved_input_example_info:
+  artifact_path: input_example.json
+  pandas_orient: split
+  type: dataframe
+signature:
+  inputs: '[{"name": "P_2", "type": "float"}, {"name": "D_39", "type": "float"}, {"name":
+    "B_1", "type": "float"}, {"name": "B_2", "type": "float"}, {"name": "R_1", "type":
+    "float"}, {"name": "S_3", "type": "float"}, {"name": "D_41", "type": "float"},
+    {"name": "B_3", "type": "float"}, {"name": "D_43", "type": "float"}, {"name":
+    "D_44", "type": "float"}, {"name": "B_4", "type": "float"}, {"name": "D_45", "type":
+    "float"}, {"name": "B_5", "type": "float"}, {"name": "R_2", "type": "float"},
+    {"name": "D_46", "type": "float"}, {"name": "D_47", "type": "float"}, {"name":
+    "D_48", "type": "float"}, {"name": "B_6", "type": "float"}, {"name": "B_7", "type":
+    "float"}, {"name": "B_8", "type": "float"}, {"name": "D_50", "type": "float"},
+    {"name": "D_51", "type": "float"}, {"name": "B_9", "type": "float"}, {"name":
+    "R_3", "type": "float"}, {"name": "D_52", "type": "float"}, {"name": "P_3", "type":
+    "float"}, {"name": "B_10", "type": "float"}, {"name": "S_5", "type": "float"},
+    {"name": "B_11", "type": "float"}, {"name": "S_6", "type": "float"}, {"name":
+    "D_54", "type": "float"}, {"name": "R_4", "type": "float"}, {"name": "S_7", "type":
+    "float"}, {"name": "B_12", "type": "float"}, {"name": "S_8", "type": "float"},
+    {"name": "D_55", "type": "float"}, {"name": "D_56", "type": "float"}, {"name":
+    "B_13", "type": "float"}, {"name": "R_5", "type": "float"}, {"name": "D_58", "type":
+    "float"}, {"name": "S_9", "type": "float"}, {"name": "B_14", "type": "float"},
+    {"name": "D_59", "type": "float"}, {"name": "D_60", "type": "float"}, {"name":
+    "D_61", "type": "float"}, {"name": "B_15", "type": "float"}, {"name": "S_11",
+    "type": "float"}, {"name": "D_62", "type": "float"}, {"name": "D_63", "type":
+    "double"}, {"name": "D_64", "type": "double"}, {"name": "D_65", "type": "float"},
+    {"name": "B_16", "type": "float"}, {"name": "B_17", "type": "float"}, {"name":
+    "B_18", "type": "float"}, {"name": "B_19", "type": "float"}, {"name": "B_20",
+    "type": "float"}, {"name": "D_68", "type": "double"}, {"name": "S_12", "type":
+    "float"}, {"name": "R_6", "type": "float"}, {"name": "S_13", "type": "float"},
+    {"name": "B_21", "type": "float"}, {"name": "D_69", "type": "float"}, {"name":
+    "B_22", "type": "float"}, {"name": "D_70", "type": "float"}, {"name": "D_71",
+    "type": "float"}, {"name": "D_72", "type": "float"}, {"name": "S_15", "type":
+    "float"}, {"name": "B_23", "type": "float"}, {"name": "P_4", "type": "float"},
+    {"name": "D_74", "type": "float"}, {"name": "D_75", "type": "float"}, {"name":
+    "B_24", "type": "float"}, {"name": "R_7", "type": "float"}, {"name": "D_77", "type":
+    "float"}, {"name": "B_25", "type": "float"}, {"name": "B_26", "type": "float"},
+    {"name": "D_78", "type": "float"}, {"name": "D_79", "type": "float"}, {"name":
+    "R_8", "type": "float"}, {"name": "S_16", "type": "float"}, {"name": "D_80", "type":
+    "float"}, {"name": "R_10", "type": "float"}, {"name": "R_11", "type": "float"},
+    {"name": "B_27", "type": "float"}, {"name": "D_81", "type": "float"}, {"name":
+    "S_17", "type": "float"}, {"name": "R_12", "type": "float"}, {"name": "B_28",
+    "type": "float"}, {"name": "R_13", "type": "float"}, {"name": "D_83", "type":
+    "float"}, {"name": "R_14", "type": "float"}, {"name": "R_15", "type": "float"},
+    {"name": "D_84", "type": "float"}, {"name": "R_16", "type": "float"}, {"name":
+    "B_30", "type": "double"}, {"name": "S_18", "type": "float"}, {"name": "D_86",
+    "type": "float"}, {"name": "R_17", "type": "float"}, {"name": "R_18", "type":
+    "float"}, {"name": "B_31", "type": "float"}, {"name": "S_19", "type": "float"},
+    {"name": "R_19", "type": "float"}, {"name": "B_32", "type": "float"}, {"name":
+    "S_20", "type": "float"}, {"name": "R_20", "type": "float"}, {"name": "R_21",
+    "type": "float"}, {"name": "B_33", "type": "float"}, {"name": "D_89", "type":
+    "float"}, {"name": "R_22", "type": "float"}, {"name": "R_23", "type": "float"},
+    {"name": "D_91", "type": "float"}, {"name": "D_92", "type": "float"}, {"name":
+    "D_93", "type": "float"}, {"name": "D_94", "type": "float"}, {"name": "R_24",
+    "type": "float"}, {"name": "R_25", "type": "float"}, {"name": "D_96", "type":
+    "float"}, {"name": "S_22", "type": "float"}, {"name": "S_23", "type": "float"},
+    {"name": "S_24", "type": "float"}, {"name": "S_25", "type": "float"}, {"name":
+    "S_26", "type": "float"}, {"name": "D_102", "type": "float"}, {"name": "D_103",
+    "type": "float"}, {"name": "D_104", "type": "float"}, {"name": "D_105", "type":
+    "float"}, {"name": "D_107", "type": "float"}, {"name": "B_36", "type": "float"},
+    {"name": "B_37", "type": "float"}, {"name": "R_27", "type": "float"}, {"name":
+    "B_38", "type": "double"}, {"name": "D_109", "type": "float"}, {"name": "D_112",
+    "type": "float"}, {"name": "B_40", "type": "float"}, {"name": "S_27", "type":
+    "float"}, {"name": "D_113", "type": "float"}, {"name": "D_114", "type": "double"},
+    {"name": "D_115", "type": "float"}, {"name": "D_116", "type": "double"}, {"name":
+    "D_117", "type": "double"}, {"name": "D_118", "type": "float"}, {"name": "D_119",
+    "type": "float"}, {"name": "D_120", "type": "double"}, {"name": "D_121", "type":
+    "float"}, {"name": "D_122", "type": "float"}, {"name": "D_123", "type": "float"},
+    {"name": "D_124", "type": "float"}, {"name": "D_125", "type": "float"}, {"name":
+    "D_126", "type": "double"}, {"name": "D_127", "type": "float"}, {"name": "D_128",
+    "type": "float"}, {"name": "D_129", "type": "float"}, {"name": "B_41", "type":
+    "float"}, {"name": "D_130", "type": "float"}, {"name": "D_131", "type": "float"},
+    {"name": "D_133", "type": "float"}, {"name": "R_28", "type": "float"}, {"name":
+    "D_139", "type": "float"}, {"name": "D_140", "type": "float"}, {"name": "D_141",
+    "type": "float"}, {"name": "D_143", "type": "float"}, {"name": "D_144", "type":
+    "float"}, {"name": "D_145", "type": "float"}, {"name": "S_2_day", "type": "long"},
+    {"name": "S_2_month", "type": "long"}, {"name": "S_2_year", "type": "long"}, {"name":
+    "ratio_B_38_B_33", "type": "double"}, {"name": "ratio_R_2_B_18", "type": "float"},
+    {"name": "ratio_B_30_D_112", "type": "double"}, {"name": "ratio_B_16_B_2", "type":
+    "float"}, {"name": "ratio_R_4_D_54", "type": "float"}]'
+  outputs: '[{"type": "tensor", "tensor-spec": {"dtype": "int64", "shape": [-1]}}]'
+utc_time_created: '2022-06-28 16:51:39.358730'

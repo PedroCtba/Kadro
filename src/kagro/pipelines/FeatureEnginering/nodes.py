@@ -3,39 +3,83 @@ This is a boilerplate pipeline 'FeatureEnginering'
 generated using Kedro 0.18.1
 """
 import pandas as pd
-from typing import Any, Callable, Dict
 import numpy as np
+from sklearn.model_selection import train_test_split
+from sklearn.preprocessing import RobustScaler, MinMaxScaler
+from sklearn.impute import SimpleImputer
+import lightgbm as lgb
 from scipy import stats
 
-def join_train_with_labels(partitioned_data: Dict[str, Callable[[], Any]], labels:pd.DataFrame) -> Dict[str, Any]:
-    # Saving dictionary
-    SaveDictionary = {}
+def train_cleaning_and_imputing(train: pd.DataFrame) -> pd.DataFrame:
+    # Drop more than 70% null cols
+    train = train.loc[:, train.isnull().mean() < .7]
 
-    # Do join based on ID column
-    for data_path, data_load_func in sorted(partitioned_data.items()):
-        # Load using load function
-        data = data_load_func()
+    # Select cat cols
+    numCols = train._get_numeric_data().columns
+    catCols = list(set(train.columns) - set(numCols))
+    filteredCatCols = list(set(train[catCols]) - {"S_2", "customer_ID"})
 
-        # Do merge
-        data = data.merge(labels, on="customer_ID", how="left")
+    # Use simple imputeron cat cols
+    si = SimpleImputer(strategy="most_frequent")
+    tr_train = pd.DataFrame(si.fit_transform(train[filteredCatCols]), columns = filteredCatCols)
+    train[filteredCatCols] = tr_train[filteredCatCols]
 
-        # Append to dictionary using data path no make name
-        keyName = "joined_" + data_path.split("/")[-1].split(".")[0]
-        SaveDictionary[keyName] = data
+    # Take all nan count in numeric cols
+    numericalCols = train.select_dtypes(np.number).columns
+    nullSeries = train[numericalCols].isnull().sum()
 
-        # Clean memory
-        del data
+    # Take columns to train and columns to fill null"s
+    noneNullCols = nullSeries.loc[nullSeries == 0].index.tolist()
+    noneNullCols.remove("target")
+    nullCols =  nullSeries.loc[nullSeries > 0].index.tolist()
+
+    # Fillna NA lgbm
+    def fillna_with_lgb(data:pd.DataFrame, train_set_cols: list, col_to_fill: str) -> pd.DataFrame:
+        # Instantiate lightgbm
+        lg = lgb.LGBMRegressor(max_depth=-1, learning_rate=0.1, n_estimators=300)
+
+        # Filter dataframe where variable to fill is not null
+        dataNotNull = data.loc[~data[col_to_fill].isnull()]
+
+        # Make X and Y
+        X = dataNotNull[train_set_cols]
+        Y = dataNotNull[col_to_fill]
+
+        # Train the model
+        lg.fit(X, Y)
+
+        # Predict null values
+        X_VAL = data[train_set_cols].loc[data[col_to_fill].isnull()]
+        data.loc[data[col_to_fill].isnull(), col_to_fill] = lg.predict(X_VAL)
+
+        return data
     
-    # Return partitioned data
-    return SaveDictionary
+    # Do null filling for every column
+    for nullC in nullCols:
+        train = fillna_with_lgb(data=train, train_set_cols=noneNullCols, col_to_fill=nullC)
+
+    #Fixing date columns
+    train["S_2_day"] = train["S_2"].dt.day
+    train["S_2_month"] = train["S_2"].dt.month
+    train["S_2_year"] = train["S_2"].dt.year
+
+    # Groupy by customer
+    train = train.groupby(['customer_ID']).nth(-1).reset_index(drop=True)
+
+    # Transform ncat to numeric
+    cols = ["D_63", "D_64", "D_68", "B_30", "B_38", "D_114", "D_116", "D_117", "D_120", "D_126"]
+    train[cols] = train[cols].apply(pd.to_numeric, errors='coerce')
+
+    # Drop unnecessary columns
+    train.drop("S_2", axis=1, inplace=True)
+
+    return train
 
 
-def make_my_features(partitioned_data: Dict[str, Callable[[], Any]], target_col: str,  top_ratio: int) -> Dict[str, Any]:
+def make_my_features(cleaned_train: pd.DataFrame, target_col: str,  top_ratio: int) -> pd.DataFrame:
     """
-    Returns the current dataframe with all personal feature enginering process
+    Returns the current dataframe with all feature enginerring process
     """
-    # Saving dictionary
-    SaveDictionary = {}
 
     # Instantiate ratio cols making function
     def return_bivariate_test(data: pd.DataFrame, target_col: str) -> pd.DataFrame:
@@ -70,9 +114,8 @@ def make_my_features(partitioned_data: Dict[str, Callable[[], Any]], target_col:
         }
 
         # For every numeric column in dataframe columns
-        numeric_cols  = [
-            col for col in data.columns if str(data[col].dtype) != "object" and col != target_col
-        ]
+        numeric_cols  = list(data._get_numeric_data().columns)
+        numeric_cols.remove(target_col)
 
         for column in numeric_cols:
             try:
@@ -95,63 +138,66 @@ def make_my_features(partitioned_data: Dict[str, Callable[[], Any]], target_col:
 
         return correlations
 
-    # Concat the data to make bivariate test
-    concatenedData = pd.DataFrame()
-
-    for partition_key, partition_load_func in sorted(partitioned_data.items()):
-        # Load with loading function
-        partitionedData = partition_load_func()
-
-        # Concat the data
-        concatenedData = pd.concat([concatenedData, partitionedData], ignore_index=True)
-
-        #  Clean memory
-        del partitionedData
-
     # Make bivariate test
-    bivariateRelatory = return_bivariate_test(data=concatenedData, target_col=target_col)
+    bivariateRelatory = return_bivariate_test(data=cleaned_train, target_col=target_col)
+    
+    # Make ratio columns
+    for rep in range(top_ratio):
+        if rep == 0:
+            correlationPlus = bivariateRelatory["Column"].iloc[rep]
+            correlationMinus = bivariateRelatory["Column"].iloc[-1]
 
-    # Clean memory
-    del concatenedData
+        else:
+            correlationPlus = bivariateRelatory["Column"].iloc[rep]
+            negRep = (rep + 1) * -1
+            correlationMinus = bivariateRelatory["Column"].iloc[negRep]
+        
+        # make ratio col
+        ratioName = "ratio_" + correlationPlus + "_" + correlationMinus
+        cleaned_train[ratioName] = cleaned_train[correlationPlus] / cleaned_train[correlationMinus]
 
-    # Use top "x" features to make ratio on all training data
-    for data_path, data_load_func in sorted(partitioned_data.items()):
-        # Load using load function
-        data = data_load_func()
-
-        # Make ratio
-        for rep in range(top_ratio):
-            if rep == 0:
-                correlationPlus = bivariateRelatory["Column"].iloc[rep]
-                correlationMinus = bivariateRelatory["Column"].iloc[-1]
-            else:
-                correlationPlus = bivariateRelatory["Column"].iloc[rep]
-                negRep = (rep + 1) * -1
-                correlationMinus = bivariateRelatory["Column"].iloc[negRep]
-            
-            # make ratio col
-            ratioName = "ratio_" + correlationPlus + "_" + correlationMinus
-            data[ratioName] = data[correlationPlus] / data[correlationMinus]
-
-        # Append to dictionary using data path no make name
-        keyName = "feature_enginered_" + data_path.split("/")[-1].split(".")[0]
-        SaveDictionary[keyName] = data
-
-        # Clean memory
-        del data
-   
     # Return partitioned data
-    return SaveDictionary
+    return cleaned_train
 
 
-def make_others_features(data: pd.DataFrame) -> pd.DataFrame:
-    """
-    Return the competition data with the features discovered by others
-    """
+def use_scalers_based_on_outliers(fe_train: pd.DataFrame) -> pd.DataFrame:
+    # Take all the numerical columns
+    numericalColumns = [col for col in fe_train.columns if fe_train[col].dtype == np.number]
 
-    return data
+    # Find wich cols have a good number of outliers
+    robustScaler = []
+    minMaxScaler = []
 
+    for ncol in numericalColumns:
+        # Calculate Q1 and Q3
+        Q1 = fe_train[ncol].quantile(0.25)
+        Q3 = fe_train[ncol].quantile(0.75)
 
+        # Count the number of outliers
+        if len(fe_train[ncol].loc[(fe_train[ncol] < Q1) | (fe_train[ncol] > Q3)]) > 2:
+            robustScaler.append(ncol)
+        else:
+            minMaxScaler.append(ncol)
+    
+    # Substitue infinities with specific value
+    fe_train.replace([np.inf, -np.inf], 0, inplace=True)
+    
+    # Split train and test
+    X = fe_train[[col for col in fe_train.columns if col != "target"]]
+    Y = pd.DataFrame(fe_train["target"])
+    del fe_train
+
+    # Use robust scaler
+    r = RobustScaler()
+    X[robustScaler] = r.fit_transform(X[robustScaler])
+
+    # Use min max scaler
+    m = MinMaxScaler()
+    X[minMaxScaler] = m.fit_transform(X[minMaxScaler])
+
+    return X, Y
+
+        
 def join_all_features(xtr_my_features: pd.DataFrame,
                       xval_my_features: pd.DataFrame,
                       xtr_others_features: pd.DataFrame,

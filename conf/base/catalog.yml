@@ -1,32 +1,29 @@
-# Partitioned train
+# Test
+test:
+  type: pandas.FeatherDataSet
+  filepath: data/01_raw/test_/test_data.ftr
+
+# Train
 train:
-  type: PartitionedDataSet
-  path: data/01_raw/train_/train_data/
-  filename_suffix: '.parquet'
-  dataset:
-    type: pandas.ParquetDataSet
+  type: pandas.FeatherDataSet
+  filepath: data/01_raw/train_/train_data/train.ftr
 
-# Train Labels
-train_labels:
-  type: pandas.ParquetDataSet
-  filepath: data/01_raw/train_/train_labels/train_labels.parquet
+# Cleaned train
+cleaned_train:
+  type: pandas.FeatherDataSet
+  filepath: data/02_curated/train_/cleaned/cleaned_train.ftr
 
-# Partitioned joined train
-joined_train:
-  type: PartitionedDataSet
-  path: data/02_curated/train_/
-  filename_suffix: '.parquet'
-  dataset:
-    type: pandas.ParquetDataSet
-    save_args:
-      index: False
+# Feature Enginered
+fe_train:
+  type: pandas.FeatherDataSet
+  filepath: data/03_feature/train_/fe_train.ftr
 
-# Train with my feature
-my_features_train:
-  type: PartitionedDataSet
-  path: data/03_feature/train_/
-  filename_suffix: '.parquet'
-  dataset:
-    type: pandas.ParquetDataSet
-    save_args:
-      index: False
+# X train
+xtr:
+  type: pandas.FeatherDataSet
+  filepath: data/04_model_ready/xtr.ftr
+
+# Y train
+ytr:
+  type: pandas.FeatherDataSet
+  filepath: data/04_model_ready/ytr.ftr

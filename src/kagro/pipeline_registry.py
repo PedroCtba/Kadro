@@ -2,7 +2,7 @@
 from typing import Dict
 
 from kedro.pipeline import Pipeline, pipeline
-from kagro.pipelines import FeatureEnginering as fe
+from kagro.pipelines import FeatureEnginering as fe, TrainMyModels as tm
 
 def register_pipelines() -> Dict[str, Pipeline]:
     """Register the project's pipelines.
@@ -11,6 +11,9 @@ def register_pipelines() -> Dict[str, Pipeline]:
         A mapping from a pipeline name to a ``Pipeline`` object.
     """
     data_enginering_pipelines = fe.create_pipeline()
+    data_science_pipelines = tm.create_pipeline()
 
-    return {"__default__": data_enginering_pipelines,
-    "dataEnginering": data_enginering_pipelines}
+    return {"__default__": data_science_pipelines,
+    "dataEnginering": data_enginering_pipelines,
+    "dataScience": data_science_pipelines
+    }
