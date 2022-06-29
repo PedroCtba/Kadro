@@ -1,7 +1,7 @@
 """Project pipelines."""
 from typing import Dict
 
-from kedro.pipeline import Pipeline, pipeline
+from kedro.pipeline import Pipeline
 from kagro.pipelines import FeatureEnginering as fe, TrainMyModels as tm
 
 def register_pipelines() -> Dict[str, Pipeline]:
