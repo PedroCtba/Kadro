@@ -1,22 +1,32 @@
 # Test
 test:
   type: pandas.FeatherDataSet
-  filepath: data/01_raw/test_/test_data.ftr
+  filepath: data/01_raw/test_data.ftr
 
 # Train
 train:
   type: pandas.FeatherDataSet
-  filepath: data/01_raw/train_/train_data/train.ftr
+  filepath: data/01_raw/train_data.ftr
+
+# Train labels
+train_labels:
+  type: pandas.FeatherDataSet
+  filepath: data/01_raw/train_labels.ftr
 
 # Cleaned train
 cleaned_train:
   type: pandas.FeatherDataSet
-  filepath: data/02_curated/train_/cleaned/cleaned_train.ftr
+  filepath: data/02_curated/cleaned_train.ftr
+
+# Cleaned test
+cleaned_test:
+  type: pandas.FeatherDataSet
+  filepath: data/02_curated/cleaned_test.ftr
 
 # Feature Enginered
 fe_train:
   type: pandas.FeatherDataSet
-  filepath: data/03_feature/train_/fe_train.ftr
+  filepath: data/03_feature/fe_train.ftr
 
 # X train
 xtr:

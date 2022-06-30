@@ -4,13 +4,19 @@ generated using Kedro 0.18.1
 """
 import pandas as pd
 import numpy as np
-from sklearn.model_selection import train_test_split
+from scipy import stats
+import gc
 from sklearn.preprocessing import RobustScaler, MinMaxScaler
 from sklearn.impute import SimpleImputer
 import lightgbm as lgb
-from scipy import stats
 
-def train_cleaning_and_imputing(train: pd.DataFrame) -> pd.DataFrame:
+
+def train_cleaning_and_imputing(train: pd.DataFrame, train_labels: pd.DataFrame) -> pd.DataFrame:
+    # Join labels with train
+    train = train.merge(train_labels, on="customer_ID", how="left")
+    del train_labels
+    gc.collect()
+
     # Drop more than 70% null cols
     train = train.loc[:, train.isnull().mean() < .7]
 
@@ -23,6 +29,8 @@ def train_cleaning_and_imputing(train: pd.DataFrame) -> pd.DataFrame:
     si = SimpleImputer(strategy="most_frequent")
     tr_train = pd.DataFrame(si.fit_transform(train[filteredCatCols]), columns = filteredCatCols)
     train[filteredCatCols] = tr_train[filteredCatCols]
+    del tr_train
+    gc.collect()
 
     # Take all nan count in numeric cols
     numericalCols = train.select_dtypes(np.number).columns
@@ -31,19 +39,24 @@ def train_cleaning_and_imputing(train: pd.DataFrame) -> pd.DataFrame:
     # Take columns to train and columns to fill null"s
     noneNullCols = nullSeries.loc[nullSeries == 0].index.tolist()
     noneNullCols.remove("target")
-    nullCols =  nullSeries.loc[nullSeries > 0].index.tolist()
 
-    # Fillna NA lgbm
+    # noneNullCols.remove("target")
+    nullCols =  nullSeries.loc[nullSeries > 0].index.tolist()
+    
+    # Fillna NA lgb
     def fillna_with_lgb(data:pd.DataFrame, train_set_cols: list, col_to_fill: str) -> pd.DataFrame:
         # Instantiate lightgbm
         lg = lgb.LGBMRegressor(max_depth=-1, learning_rate=0.1, n_estimators=300)
 
         # Filter dataframe where variable to fill is not null
-        dataNotNull = data.loc[~data[col_to_fill].isnull()]
+        dataNotNull = data.loc[ ~ data[col_to_fill].isnull()]
 
         # Make X and Y
         X = dataNotNull[train_set_cols]
         Y = dataNotNull[col_to_fill]
+        del dataNotNull
+        gc.collect()
+        
 
         # Train the model
         lg.fit(X, Y)
@@ -74,6 +87,78 @@ def train_cleaning_and_imputing(train: pd.DataFrame) -> pd.DataFrame:
     train.drop("S_2", axis=1, inplace=True)
 
     return train
+
+
+def test_cleaning_and_imputing(test: pd.DataFrame) -> pd.DataFrame:
+    # Drop more than 70% null cols
+    test = test.loc[:, test.isnull().mean() < .7]
+
+    # Select cat cols
+    numCols = test._get_numeric_data().columns
+    catCols = list(set(test.columns) - set(numCols))
+    filteredCatCols = list(set(test[catCols]) - {"S_2", "customer_ID"})
+
+    # Use simple imputeron cat cols
+    si = SimpleImputer(strategy="most_frequent")
+    tr_test = pd.DataFrame(si.fit_transform(test[filteredCatCols]), columns = filteredCatCols)
+    test[filteredCatCols] = tr_test[filteredCatCols]
+    del tr_test
+    gc.collect()
+
+    # Take all nan count in numeric cols
+    numericalCols = test.select_dtypes(np.number).columns
+    nullSeries = test[numericalCols].isnull().sum()
+
+    # Take columns to test and columns to fill null"s
+    noneNullCols = nullSeries.loc[nullSeries == 0].index.tolist()
+
+    # noneNullCols.remove("target")
+    nullCols =  nullSeries.loc[nullSeries > 0].index.tolist()
+    
+    # Fillna NA lgb
+    def fillna_with_lgb(data:pd.DataFrame, test_set_cols: list, col_to_fill: str) -> pd.DataFrame:
+        # Instantiate lightgbm
+        lg = lgb.LGBMRegressor(max_depth=-1, learning_rate=0.1, n_estimators=300)
+
+        # Filter dataframe where variable to fill is not null
+        dataNotNull = data.loc[ ~ data[col_to_fill].isnull()]
+
+        # Make X and Y
+        X = dataNotNull[test_set_cols]
+        Y = dataNotNull[col_to_fill]
+        del dataNotNull
+        gc.collect()
+        
+
+        # test the model
+        lg.fit(X, Y)
+
+        # Predict null values
+        X_VAL = data[test_set_cols].loc[data[col_to_fill].isnull()]
+        data.loc[data[col_to_fill].isnull(), col_to_fill] = lg.predict(X_VAL)
+
+        return data
+    
+    # Do null filling for every column
+    for nullC in nullCols:
+        test = fillna_with_lgb(data=test, test_set_cols=noneNullCols, col_to_fill=nullC)
+
+    #Fixing date columns
+    test["S_2_day"] = test["S_2"].dt.day
+    test["S_2_month"] = test["S_2"].dt.month
+    test["S_2_year"] = test["S_2"].dt.year
+
+    # Groupy by customer
+    test = test.groupby(['customer_ID']).nth(-1).reset_index(drop=True)
+
+    # Transform ncat to numeric
+    cols = ["D_63", "D_64", "D_68", "B_30", "B_38", "D_114", "D_116", "D_117", "D_120", "D_126"]
+    test[cols] = test[cols].apply(pd.to_numeric, errors='coerce')
+
+    # Drop unnecessary columns
+    test.drop("S_2", axis=1, inplace=True)
+    
+    return test
 
 
 def make_my_features(cleaned_train: pd.DataFrame, target_col: str,  top_ratio: int) -> pd.DataFrame:
