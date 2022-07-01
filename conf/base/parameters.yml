@@ -1,5 +1,5 @@
 # Target col name
 target_col: "target"
 
-# Top ratio parameter
-top_ratio: 5
+# Top ratio parameters
+top_ratio: 10

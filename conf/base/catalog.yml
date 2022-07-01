@@ -20,13 +20,30 @@ cleaned_train:
 
 # Cleaned test
 cleaned_test:
-  type: pandas.FeatherDataSet
+  type: pandas.ExcelDataSet
   filepath: data/02_curated/cleaned_test.ftr
+
+# Correlation Relatory
+correlation_relatory:
+  type: pandas.FeatherDataSet
+  filepath: data/03_feature/correlation_relatory.xlsx
 
 # Feature Enginered
 fe_train:
   type: pandas.FeatherDataSet
   filepath: data/03_feature/fe_train.ftr
+
+# Robust Scaler
+robust_scaler:
+  type: pickle.PickleDataSet
+  filepath: data/05_models_and_scalers/robust_scaler.pkl
+  backend: pickle
+
+# Min Max Scaler
+min_max_scaler:
+  type: pickle.PickleDataSet
+  filepath: data/05_models_and_scalers/min_max_scaler.pkl
+  backend: pickle
 
 # X train
 xtr:
@@ -37,3 +54,8 @@ xtr:
 ytr:
   type: pandas.FeatherDataSet
   filepath: data/04_model_ready/ytr.ftr
+
+# X val
+xval:
+  type: pandas.FeatherDataSet
+  filepath: data/04_model_ready/xval.ftr
