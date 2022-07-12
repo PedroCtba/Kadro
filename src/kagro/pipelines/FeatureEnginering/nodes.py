@@ -4,7 +4,6 @@ generated using Kedro 0.18.1
 """
 import pandas as pd
 import numpy as np
-import pickle
 from scipy import stats
 from sklearn.impute import SimpleImputer
 import lightgbm as lgb
@@ -65,11 +64,6 @@ def train_cleaning_and_imputing(train: pd.DataFrame, train_labels: pd.DataFrame)
     # Do null filling for every column
     for nullC in nullCols:
         train = fillna_with_lgb(data=train, train_set_cols=noneNullCols, col_to_fill=nullC)
-
-    #Fixing date columns
-    train["S_2_day"] = train["S_2"].dt.day
-    train["S_2_month"] = train["S_2"].dt.month
-    train["S_2_year"] = train["S_2"].dt.year
 
     # Groupy by customer
     train = train.groupby(['customer_ID']).nth(-1).reset_index(drop=True)
@@ -135,13 +129,8 @@ def test_cleaning_and_imputing(test: pd.DataFrame) -> pd.DataFrame:
     for nullC in nullCols:
         test = fillna_with_lgb(data=test, test_set_cols=noneNullCols, col_to_fill=nullC)
 
-    #Fixing date columns
-    test["S_2_day"] = test["S_2"].dt.day
-    test["S_2_month"] = test["S_2"].dt.month
-    test["S_2_year"] = test["S_2"].dt.year
-
     # Groupy by customer
-    test = test.groupby(['customer_ID']).nth(-1).reset_index(drop=True)
+    test = test.groupby(['customer_ID']).nth(-1).reset_index(drop=False)
 
     # Transform ncat to numeric
     cols = ["D_63", "D_64", "D_68", "B_30", "B_38", "D_114", "D_116", "D_117", "D_120", "D_126"]
@@ -185,7 +174,8 @@ def define_fe_process_with_train(cleaned_train: pd.DataFrame, target_col: str) -
         correlations = {
             "Column": [],
             "BiCorr" : [],
-            "Kruskal": []
+            "Kruskal_st": [],
+            "Kruskal_pvalue": []
         }
 
         # For every numeric column in dataframe columns
@@ -200,7 +190,8 @@ def define_fe_process_with_train(cleaned_train: pd.DataFrame, target_col: str) -
                 # append the results into relatory
                 correlations["Column"].append(column)
                 correlations["BiCorr"].append(biseralCor[0])
-                correlations["Kruskal"].append(kruskal[0])
+                correlations["Kruskal_st"].append(kruskal[0])
+                correlations["Kruskal_pvalue"].append(kruskal[1])
 
             except:
                 pass
@@ -209,7 +200,15 @@ def define_fe_process_with_train(cleaned_train: pd.DataFrame, target_col: str) -
         correlations = pd.DataFrame(correlations)
 
         # Order DataFrame
-        correlations = correlations.sort_values(["BiCorr", "Kruskal"], ascending=[False, False])
+        correlations = correlations.sort_values(["BiCorr", "Kruskal_st"], ascending=[False, False])
+
+        # Add treshold
+        statistic = stats.chi2.ppf(1-0.05, df=1)
+        correlations["kruskal_ppf"] = statistic
+
+        # Evalute aception or not of H0
+        correlations["kruskal_reject_h0"] = 0
+        correlations.loc[correlations["Kruskal_st"] > correlations["kruskal_ppf"], "kruskal_reject_h0"] = 1
 
         return correlations
 
@@ -223,10 +222,9 @@ def make_my_features_at_train(cleaned_train: pd.DataFrame, correlationRelatory: 
     """
     Returns the train dataframe with all personal feature engineering process
     """
-    # Filter relatory for kruskal test with low pvalues
-    
-
-    # Filter data in columns with low pvalues
+    # Filter the dataset based on kruskal test aception of H0
+    colsToDrop = correlationRelatory["Column"].loc[correlationRelatory["kruskal_reject_h0"] == 0].tolist()
+    for col in colsToDrop: cleaned_train.drop(col, axis=1, inplace=True)
     
     # Make ratio columns
     for rep in range(top_ratio):
@@ -251,10 +249,9 @@ def make_my_features_at_test(cleaned_test: pd.DataFrame,  correlationRelatory: p
     """
     Returns the test dataframe with all personal feature engineering process
     """
-    # Filter relatory for kruskal test with low pvalues
-    
-
-    # Filter data in columns with low pvalues
+    # Filter the dataset based on kruskal test aception of H0
+    colsToDrop = correlationRelatory["Column"].loc[correlationRelatory["kruskal_reject_h0"] == 0].tolist()
+    for col in colsToDrop: cleaned_test.drop(col, axis=1, inplace=True)
 
     # Make ratio columns
     for rep in range(top_ratio):
