@@ -72,7 +72,7 @@ def train_cleaning_and_imputing(train: pd.DataFrame, train_labels: pd.DataFrame)
         train = fillna_with_lgb(data=train, train_set_cols=noneNullCols, col_to_fill=nullC)
 
     #Fixing date columns
-    train["S_2_day"] = train["S_2"].dt.day
+    train["S_2_day"] = train["S_2"].dt.dayS
     train["S_2_month"] = train["S_2"].dt.month
     train["S_2_year"] = train["S_2"].dt.year
 
