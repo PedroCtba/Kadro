@@ -2,7 +2,6 @@
 This is a boilerplate pipeline 'TrainMyModels'
 generated using Kedro 0.18.1
 """
-from tkinter.tix import Select
 import pandas as pd
 import numpy as np
 import plotly.express as px
@@ -55,8 +54,8 @@ def define_scalers_and_list_of_features_based_on_outliers(fe_train: pd.DataFrame
 
 
 def use_scalers_at_train_and_test(fe_train: pd.DataFrame, fe_test: pd.DataFrame, 
-                                    robust_scaler: pickle, min_max_scaler: pickle, 
-                                    robust_scaler_features_names: pd.DataFrame, min_max_scaler_features_names: pd.DataFrame):
+                                robust_scaler: pickle, min_max_scaler: pickle, 
+                                robust_scaler_features_names: pd.DataFrame, min_max_scaler_features_names: pd.DataFrame):
     # Substitue infinities with 0
     fe_train.replace([np.inf, -np.inf], 0, inplace=True)
     fe_test.replace([np.inf, -np.inf], 0, inplace=True)
@@ -76,7 +75,10 @@ def use_scalers_at_train_and_test(fe_train: pd.DataFrame, fe_test: pd.DataFrame,
     return XTR, YTR, XVAL
 
 
-def tune_lgbm_with_optuna(xtr: pd.DataFrame, ytr: pd.DataFrame, fe_train: pd.DataFrame, splits: int, robust_scaler_features_names: pd.DataFrame, min_max_scaler_features_names: pd.DataFrame) -> pickle:
+def tune_lgbm_with_optuna(xtr: pd.DataFrame, ytr: pd.DataFrame, fe_train: pd.DataFrame, 
+                        splits: int, robust_scaler_features_names: pd.DataFrame, 
+                        min_max_scaler_features_names: pd.DataFrame) -> pickle:
+
     # Define optuna optimization function
     def optimize_function(trial, data=fe_train, splits=splits) -> float:
         # Instantiate grid of paremeters | Variable to append scores on
@@ -154,79 +156,79 @@ def tune_lgbm_with_optuna(xtr: pd.DataFrame, ytr: pd.DataFrame, fe_train: pd.Dat
     return final_model
 
 
-def tune_logistic_regression_with_optuna(xtr: pd.DataFrame, ytr: pd.DataFrame, fe_train:pd.DataFrame, splits: int, robust_scaler_features_names: pd.DataFrame, min_max_scaler_features_names: pd.DataFrame, correlationRelatory: pd.DataFrame,):
-    # Select most correlated variables from correlation dataframe
-    selectedVariables = correlationRelatory["Column"].tolist()[0:30] + correlationRelatory["Column"].tolist()[-1:31]
+def tune_logistic_regression_with_optuna(xtr: pd.DataFrame, ytr: pd.DataFrame, 
+                                        fe_train:pd.DataFrame, splits: int, robust_scaler_features_names: pd.DataFrame, 
+                                        min_max_scaler_features_names: pd.DataFrame, correlationRelatory: pd.DataFrame):
+
+    # Select list of variables from correlation dataframe, in asceding order by correaltion force, drop variables that di not rejected null H0 in kruskal
+    correlationRelatory = correlationRelatory.loc[correlationRelatory["kruskal_reject_h0"] == 1]
+    correlationRelatory = correlationRelatory.sort_values("BiCorr", ascending=False)
+    selectedVariables = correlationRelatory["Column"].tolist()
     
-    # Drop variables with hight correlation between themself
+    # Iterate selecting variables with positive correalation, and dropping variables with high corr with already selected variables
     for variable in selectedVariables:
         for testVariable in selectedVariables:
             if xtr[variable].corr(xtr[testVariable]) > 0.30:
                 selectedVariables.remove(testVariable)
 
-    print("=-" * 50)
-    print(selectedVariables)
-    print("=-" * 50)
-    
-    if False:
-        # Define optuna Function to tune losgistic regression
-        def optimize_function(trial, data=fe_train, splits=splits, selected_cols=selectedVariables) -> float:
-            # Instantiate grid of paremeters
-            paramGrid = {
-                "solver": trial.suggest_categorical("solver", ["newton-cg", "lbfgs", "liblinear", "sag", "saga"]),
-                "penalty": trial.suggest_categorical("penalty", ["none", "l1", "l2", "elasticnet"]),
-                "C": trial.suggest_float("C", 0.001, 10),
-            }
-            scores = np.empty(splits)
+    # Define optuna Function to tune losgistic regression
+    def optimize_function(trial, data=fe_train, splits=splits, selected_cols=selectedVariables) -> float:
+        # Instantiate grid of paremeters
+        paramGrid = {
+            "solver": trial.suggest_categorical("solver", ["newton-cg", "lbfgs", "liblinear", "sag", "saga"]),
+            "penalty": trial.suggest_categorical("penalty", ["none", "l1", "l2", "elasticnet"]),
+            "C": trial.suggest_float("C", 0.001, 10),
+        }
+        scores = np.empty(splits)
 
-            # Delete inf values from train
-            data.replace([np.inf, -np.inf], 0, inplace=True)
+        # Delete inf values from train
+        data.replace([np.inf, -np.inf], 0, inplace=True)
 
-            # Separate xtr, and ytr
-            XTR = data[[col for col in data.columns if col != "target" and col in selected_cols]]
-            YTR = data["target"]
+        # Separate xtr, and ytr
+        XTR = data[[col for col in data.columns if col != "target" and col in selected_cols]]
+        YTR = data["target"]
 
-            # Instantiate Kfold
-            kf = KFold(n_splits=splits)
+        # Instantiate Kfold
+        kf = KFold(n_splits=splits)
 
-            # Iterate making train and test partitions
-            for idx, (tr_ind, val_ind) in enumerate (kf.split(XTR, YTR)):
-                # Separate train and test
-                xtr, xval = XTR.iloc[tr_ind], XTR.iloc[val_ind]
-                ytr, yval = YTR.iloc[tr_ind], YTR.iloc[val_ind]
+        # Iterate making train and test partitions
+        for idx, (tr_ind, val_ind) in enumerate(kf.split(XTR, YTR)):
+            # Separate train and test
+            xtr, xval = XTR.iloc[tr_ind], XTR.iloc[val_ind]
+            ytr, yval = YTR.iloc[tr_ind], YTR.iloc[val_ind]
 
-                # Fit robust and min_max_scaler at train
-                r = RobustScaler()
-                rFeatures = [f for f in robust_scaler_features_names["features"] if f in selected_cols]
-                r.fit(xtr[rFeatures])
-                xtr[rFeatures] = r.transform(xtr[rFeatures])
+            # Fit robust and min_max_scaler at train
+            r = RobustScaler()
+            rFeatures = [f for f in robust_scaler_features_names["features"] if f in selected_cols]
+            r.fit(xtr[rFeatures])
+            xtr[rFeatures] = r.transform(xtr[rFeatures])
 
-                m = MinMaxScaler()
-                mFeatures = [f for f in min_max_scaler_features_names["features"] if f in selected_cols]
-                m.fit(xtr[mFeatures])
-                xtr[mFeatures] = m.transform(xtr[mFeatures])
+            m = MinMaxScaler()
+            mFeatures = [f for f in min_max_scaler_features_names["features"] if f in selected_cols]
+            m.fit(xtr[mFeatures])
+            xtr[mFeatures] = m.transform(xtr[mFeatures])
 
-                # Transform xval with scalers
-                xval[rFeatures] = r.transform(xval[rFeatures])
-                xval[mFeatures] = m.transform(xval[mFeatures])
+            # Transform xval with scalers
+            xval[rFeatures] = r.transform(xval[rFeatures])
+            xval[mFeatures] = m.transform(xval[mFeatures])
 
-                # Make logistic regression with paremeters as paramGrid**
-                lr = LogisticRegression(**paramGrid)
+            # Make logistic regression with paremeters as paramGrid**
+            lr = LogisticRegression(**paramGrid)
 
-                # fit
-                lr.fit(xtr, ytr)
+            # fit
+            lr.fit(xtr, ytr)
 
-                # Make yhat
-                yhat = lr.predict_proba(xval)[:, 1]
-                scores[idx] = log_loss(yval, yhat)
+            # Make yhat
+            yhat = lr.predict_proba(xval)[:, 1]
+            scores[idx] = log_loss(yval, yhat)
 
-            # Return the mean of scores in all 10 validations
-            return np.mean(scores)
+        # Return the mean of scores in all 10 validations
+        return np.mean(scores)
 
-        # Instantiate a optuna study
-        study = optuna.create_study(direction="minimize", study_name="Logistic Regression Optuna Bayesian Optimization")
-        func = lambda trial: optimize_function(trial, data=fe_train, splits=splits, selected_cols=selectedVariables)
-        study.optimize(func, n_trials=30)
+    # Instantiate a optuna study
+    study = optuna.create_study(direction="minimize", study_name="Logistic Regression Optuna Bayesian Optimization")
+    func = lambda trial: optimize_function(trial, data=fe_train, splits=splits, selected_cols=selectedVariables)
+    study.optimize(func, n_trials=30)
 
     # Save trained model with specified paremeters
     lr = LogisticRegression(
