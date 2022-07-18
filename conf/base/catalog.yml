@@ -49,7 +49,6 @@ robust_scaler_features_names:
   type: pandas.CSVDataSet
   filepath: data/03_feature/robust_scaler_features_names.csv
 
-
 # Min Max Scaler
 min_max_scaler:
   type: pickle.PickleDataSet
@@ -80,6 +79,12 @@ xval:
 tuned_lgbm:
   type: pickle.PickleDataSet
   filepath: data/05_models_and_scalers/tuned_lgbm.pkl
+  backend: pickle
+
+# Tune logistic regression
+tuned_lr:
+  type: pickle.PickleDataSet
+  filepath: data/05_models_and_scalers/tuned_lr.pkl
   backend: pickle
 
 # Metrics

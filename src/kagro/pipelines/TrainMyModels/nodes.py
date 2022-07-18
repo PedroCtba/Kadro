@@ -5,7 +5,7 @@ generated using Kedro 0.18.1
 import pandas as pd
 import numpy as np
 import plotly.express as px
-import plotly.figure_factory as ff
+from sklearn.linear_model import LogisticRegression
 import pickle
 import optuna
 from optuna.integration import LightGBMPruningCallback
@@ -54,8 +54,8 @@ def define_scalers_and_list_of_features_based_on_outliers(fe_train: pd.DataFrame
 
 
 def use_scalers_at_train_and_test(fe_train: pd.DataFrame, fe_test: pd.DataFrame, 
-                                    robust_scaler: pickle, min_max_scaler: pickle, 
-                                    robust_scaler_features_names: pd.DataFrame, min_max_scaler_features_names: pd.DataFrame):
+                                robust_scaler: pickle, min_max_scaler: pickle, 
+                                robust_scaler_features_names: pd.DataFrame, min_max_scaler_features_names: pd.DataFrame):
     # Substitue infinities with 0
     fe_train.replace([np.inf, -np.inf], 0, inplace=True)
     fe_test.replace([np.inf, -np.inf], 0, inplace=True)
@@ -75,7 +75,10 @@ def use_scalers_at_train_and_test(fe_train: pd.DataFrame, fe_test: pd.DataFrame,
     return XTR, YTR, XVAL
 
 
-def tune_lgbm_with_optuna(xtr: pd.DataFrame, ytr: pd.DataFrame, fe_train: pd.DataFrame, splits: int, robust_scaler_features_names: pd.DataFrame, min_max_scaler_features_names: pd.DataFrame) -> pickle:
+def tune_lgbm_with_optuna(xtr: pd.DataFrame, ytr: pd.DataFrame, fe_train: pd.DataFrame, 
+                        splits: int, robust_scaler_features_names: pd.DataFrame, 
+                        min_max_scaler_features_names: pd.DataFrame) -> pickle:
+
     # Define optuna optimization function
     def optimize_function(trial, data=fe_train, splits=splits) -> float:
         # Instantiate grid of paremeters | Variable to append scores on
@@ -141,19 +144,103 @@ def tune_lgbm_with_optuna(xtr: pd.DataFrame, ytr: pd.DataFrame, fe_train: pd.Dat
         # Return the mean of scores in all 10 validations
         return np.mean(scores)
 
-    # Instantia a optuna study
+    # Instantiate a optuna study
     study = optuna.create_study(direction="minimize", study_name="LGBM Optuna Bayesian Optimization")
     func = lambda trial: optimize_function(trial, data=fe_train, splits=splits)
     study.optimize(func, n_trials=30)
 
-    # Save trained model with scpecified paremeters
+    # Save trained model with specified paremeters
     lgbm = lgb.LGBMClassifier(**study.best_params)
     final_model = lgbm.fit(xtr, ytr)
 
     return final_model
 
 
-def kfold_10_mlflow_validation(fe_train: pd.DataFrame, model: pickle, robust_scaler_features_names: pd.DataFrame, min_max_scaler_features_names: pd.DataFrame) -> pd.DataFrame:
+def tune_logistic_regression_with_optuna(xtr: pd.DataFrame, ytr: pd.DataFrame, 
+                                        fe_train:pd.DataFrame, splits: int, robust_scaler_features_names: pd.DataFrame, 
+                                        min_max_scaler_features_names: pd.DataFrame, correlationRelatory: pd.DataFrame):
+
+    # Select list of variables from correlation dataframe, in asceding order by correaltion force, drop variables that di not rejected null H0 in kruskal
+    correlationRelatory = correlationRelatory.loc[correlationRelatory["kruskal_reject_h0"] == 1]
+    correlationRelatory = correlationRelatory.sort_values("BiCorr", ascending=False)
+    selectedVariables = correlationRelatory["Column"].tolist()
+    
+    # Iterate selecting variables with positive correalation, and dropping variables with high corr with already selected variables
+    for variable in selectedVariables:
+        for testVariable in selectedVariables:
+            if xtr[variable].corr(xtr[testVariable]) > 0.30:
+                selectedVariables.remove(testVariable)
+
+    # Define optuna Function to tune losgistic regression
+    def optimize_function(trial, data=fe_train, splits=splits, selected_cols=selectedVariables) -> float:
+        # Instantiate grid of paremeters
+        paramGrid = {
+            "solver": trial.suggest_categorical("solver", ["newton-cg", "lbfgs", "liblinear", "sag", "saga"]),
+            "penalty": trial.suggest_categorical("penalty", ["none", "l1", "l2", "elasticnet"]),
+            "C": trial.suggest_float("C", 0.001, 10),
+        }
+        scores = np.empty(splits)
+
+        # Delete inf values from train
+        data.replace([np.inf, -np.inf], 0, inplace=True)
+
+        # Separate xtr, and ytr
+        XTR = data[[col for col in data.columns if col != "target" and col in selected_cols]]
+        YTR = data["target"]
+
+        # Instantiate Kfold
+        kf = KFold(n_splits=splits)
+
+        # Iterate making train and test partitions
+        for idx, (tr_ind, val_ind) in enumerate(kf.split(XTR, YTR)):
+            # Separate train and test
+            xtr, xval = XTR.iloc[tr_ind], XTR.iloc[val_ind]
+            ytr, yval = YTR.iloc[tr_ind], YTR.iloc[val_ind]
+
+            # Fit robust and min_max_scaler at train
+            r = RobustScaler()
+            rFeatures = [f for f in robust_scaler_features_names["features"] if f in selected_cols]
+            r.fit(xtr[rFeatures])
+            xtr[rFeatures] = r.transform(xtr[rFeatures])
+
+            m = MinMaxScaler()
+            mFeatures = [f for f in min_max_scaler_features_names["features"] if f in selected_cols]
+            m.fit(xtr[mFeatures])
+            xtr[mFeatures] = m.transform(xtr[mFeatures])
+
+            # Transform xval with scalers
+            xval[rFeatures] = r.transform(xval[rFeatures])
+            xval[mFeatures] = m.transform(xval[mFeatures])
+
+            # Make logistic regression with paremeters as paramGrid**
+            lr = LogisticRegression(**paramGrid)
+
+            # fit
+            lr.fit(xtr, ytr)
+
+            # Make yhat
+            yhat = lr.predict_proba(xval)[:, 1]
+            scores[idx] = log_loss(yval, yhat)
+
+        # Return the mean of scores in all 10 validations
+        return np.mean(scores)
+
+    # Instantiate a optuna study
+    study = optuna.create_study(direction="minimize", study_name="Logistic Regression Optuna Bayesian Optimization")
+    func = lambda trial: optimize_function(trial, data=fe_train, splits=splits, selected_cols=selectedVariables)
+    study.optimize(func, n_trials=30)
+
+    # Save trained model with specified paremeters
+    lr = LogisticRegression(
+        # **study.best_params
+        )
+    final_model = lr.fit(xtr[selectedVariables], ytr)
+    final_model.features = selectedVariables
+
+    return final_model
+
+
+def kfold_10_mlflow_validation(fe_train: pd.DataFrame, lgbm: pickle, lr_regression: pickle, robust_scaler_features_names: pd.DataFrame, min_max_scaler_features_names: pd.DataFrame) -> pd.DataFrame:
     # def amex metric function
     def amex_metric(y_true: pd.DataFrame, y_pred: pd.DataFrame) -> float:
 
@@ -206,15 +293,18 @@ def kfold_10_mlflow_validation(fe_train: pd.DataFrame, model: pickle, robust_sca
     x = fe_train[[col for col in fe_train.columns if col != "target"]]
     y = fe_train["target"]
 
-    # Do kfold validation!
+
+    # Do kfold validation
     kfCounter =  0
+    # Instantiate matrix of zeros to use ensemble
+    secondLevel = np.zeros((x.shape[0], 2))
     for tr_index, val_index in kf.split(x):
         # Start mlfflow nested run
         mlflow.start_run(run_name=f"Kfold_{kfCounter}", nested=True)
 
         # Separate train and test
         xtr, xval = x.iloc[tr_index], x.iloc[val_index]
-        yval = y.iloc[val_index]
+        ytr, yval = y.iloc[tr_index], y.iloc[val_index]
 
         # Fit scalers at train | Use columns defined in the past node
         r = RobustScaler()
@@ -227,9 +317,24 @@ def kfold_10_mlflow_validation(fe_train: pd.DataFrame, model: pickle, robust_sca
         xval[robust_scaler_features_names["features"]] = r.transform(xval[robust_scaler_features_names["features"]])
         xval[min_max_scaler_features_names["features"]] = m.transform(xval[min_max_scaler_features_names["features"]])
 
-        # Yhat | column to evaluate prediction
-        yhat_proba = model.predict_proba(xval)[:, 1]
-        yhat = model.predict(xval)
+        # Make yhat of all models
+        yhat_lgbm = lgbm.predict_proba(xval)[:, 1]
+        yhat_lr = lr_regression.predict_proba(xval[lr_regression.features])[:, 1]
+
+        # Save yhat at matrice
+        secondLevel[val_index, 0] = yhat_lgbm
+        secondLevel[val_index, 1] = yhat_lr
+
+        # take xtr, xval, try, yval of matrice
+        _s_xtr, _s_xval = secondLevel[tr_index], secondLevel[val_index]
+
+        # Make secondLevelLogisticRegression | and fit it
+        secondLevellr = LogisticRegression()
+        secondLevellr.fit(_s_xtr, ytr)
+        yhat_proba = secondLevellr.predict_proba(_s_xval)[:, 1]
+        yhat = (yhat_proba > 0.5).astype(int)
+
+        # Def predictions
         xval["yhat"] = yhat 
         xval["prediction"] = yhat_proba
         xval["target"] = yval
@@ -298,15 +403,18 @@ def kfold_10_mlflow_validation(fe_train: pd.DataFrame, model: pickle, robust_sca
         mlflow.end_run()
         kfCounter += 1
 
-   # Do Stratified kfold validation!
+
+    # Do Stratified kfold validation!
     sfCounter =  0
+    # Instantiate matrix of zeros to use ensemble
+    secondLevel = np.zeros((x.shape[0], 2))
     for tr_index, val_index in sf.split(x, y):
         # Start mlfflow nested run
         mlflow.start_run(run_name=f"Stratified_Kfold_{sfCounter}", nested=True)
 
         # Separate train and test
         xtr, xval = x.iloc[tr_index], x.iloc[val_index]
-        yval = y.iloc[val_index]
+        ytr, yval = y.iloc[tr_index], y.iloc[val_index]
 
         # Fit scalers at train | Use columns defined in the past node
         r = RobustScaler()
@@ -319,9 +427,24 @@ def kfold_10_mlflow_validation(fe_train: pd.DataFrame, model: pickle, robust_sca
         xval[robust_scaler_features_names["features"]] = r.transform(xval[robust_scaler_features_names["features"]])
         xval[min_max_scaler_features_names["features"]] = m.transform(xval[min_max_scaler_features_names["features"]])
 
-        # Yhat | column to evaluate prediction
-        yhat_proba = model.predict_proba(xval)[:, 1]
-        yhat = model.predict(xval)
+        # Make yhat of all models
+        yhat_lgbm = lgbm.predict_proba(xval)[:, 1]
+        yhat_lr = lr_regression.predict_proba(xval[lr_regression.features])[:, 1]
+
+        # Save yhat at matrice
+        secondLevel[val_index, 0] = yhat_lgbm
+        secondLevel[val_index, 1] = yhat_lr
+
+        # take xtr, xval, try, yval of matrice
+        _s_xtr, _s_xval = secondLevel[tr_index], secondLevel[val_index]
+
+        # Make secondLevelLogisticRegression | and fit it
+        secondLevellr = LogisticRegression()
+        secondLevellr.fit(_s_xtr, _s_xval)
+        yhat_proba = secondLevellr.predict_proba(_s_xval)[:, 1]
+        yhat = (yhat_proba > 0.5).astype(int)
+
+        # Def predictions
         xval["yhat"] = yhat 
         xval["prediction"] = yhat_proba
         xval["target"] = yval

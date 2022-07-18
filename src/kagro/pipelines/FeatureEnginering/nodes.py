@@ -246,7 +246,7 @@ def make_my_features_at_train(cleaned_train: pd.DataFrame, correlationRelatory: 
         ratioName = "ratio_" + correlationPlus + "_" + correlationMinus
         cleaned_train[ratioName] = cleaned_train[correlationPlus] / cleaned_train[correlationMinus]
 
-    # Return partitioned data
+    # Return cleaned train
     return cleaned_train
 
 

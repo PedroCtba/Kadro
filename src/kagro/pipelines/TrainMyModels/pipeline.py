@@ -4,7 +4,7 @@ generated using Kedro 0.18.1
 """
 
 from kedro.pipeline import Pipeline, node, pipeline
-from .nodes import tune_lgbm_with_optuna, kfold_10_mlflow_validation, define_scalers_and_list_of_features_based_on_outliers, use_scalers_at_train_and_test, make_kaggle_submission
+from .nodes import tune_lgbm_with_optuna, tune_logistic_regression_with_optuna, kfold_10_mlflow_validation, define_scalers_and_list_of_features_based_on_outliers, use_scalers_at_train_and_test, make_kaggle_submission
 
 
 def create_pipeline(**kwargs) -> Pipeline:
@@ -25,6 +25,13 @@ def create_pipeline(**kwargs) -> Pipeline:
             ),
 
         node(
+            func=tune_logistic_regression_with_optuna,
+            inputs=["xtr", "ytr", "fe_train", "params:splits_for_optuna", "robust_scaler_features_names", "min_max_scaler_features_names", "correlation_relatory"],
+            outputs="tuned_lr",
+            name="TuneLrWithOptuna"
+        ),
+
+        node(
             func=tune_lgbm_with_optuna,
             inputs=["xtr", "ytr", "fe_train", "params:splits_for_optuna", "robust_scaler_features_names", "min_max_scaler_features_names"],
             outputs="tuned_lgbm",
@@ -33,7 +40,7 @@ def create_pipeline(**kwargs) -> Pipeline:
 
         node(
             func=kfold_10_mlflow_validation,
-            inputs=["fe_train", "tuned_lgbm", "robust_scaler_features_names", "min_max_scaler_features_names"],
+            inputs=["fe_train", "tuned_lgbm", "tuned_lr", "robust_scaler_features_names", "min_max_scaler_features_names"],
             outputs="kfold_metrics",
             name="Kfold10MlflowValidation"
         ),
