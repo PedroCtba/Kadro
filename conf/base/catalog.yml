@@ -23,10 +23,43 @@ cleaned_test:
   type: pandas.FeatherDataSet
   filepath: data/02_curated/cleaned_test.ftr
 
-# Feature Enginered
+# Correlation Relatory
+correlation_relatory:
+  type: pandas.ExcelDataSet
+  filepath: data/03_feature/correlation_relatory.xlsx
+
+# Feature Enginered train
 fe_train:
   type: pandas.FeatherDataSet
   filepath: data/03_feature/fe_train.ftr
+
+# Feature Enginered test
+fe_test:
+  type: pandas.FeatherDataSet
+  filepath: data/03_feature/fe_test.ftr
+
+# Robust Scaler
+robust_scaler:
+  type: pickle.PickleDataSet
+  filepath: data/05_models_and_scalers/robust_scaler.pkl
+  backend: pickle
+
+# Robust Salcer features names
+robust_scaler_features_names:
+  type: pandas.CSVDataSet
+  filepath: data/03_feature/robust_scaler_features_names.csv
+
+
+# Min Max Scaler
+min_max_scaler:
+  type: pickle.PickleDataSet
+  filepath: data/05_models_and_scalers/min_max_scaler.pkl
+  backend: pickle
+
+# Min Max Scaler features names
+min_max_scaler_features_names:
+  type: pandas.CSVDataSet
+  filepath: data/03_feature/min_max_scaler_features_names.csv
 
 # X train
 xtr:
@@ -37,3 +70,24 @@ xtr:
 ytr:
   type: pandas.FeatherDataSet
   filepath: data/04_model_ready/ytr.ftr
+
+# X val
+xval:
+  type: pandas.FeatherDataSet
+  filepath: data/04_model_ready/xval.ftr
+
+# Tune light gbm
+tuned_lgbm:
+  type: pickle.PickleDataSet
+  filepath: data/05_models_and_scalers/tuned_lgbm.pkl
+  backend: pickle
+
+# Metrics
+kfold_metrics:
+  type: pandas.ExcelDataSet
+  filepath: data/07_reporting/kfold_metrics.xlsx
+
+# Kaggle submission
+submission:
+  type: pandas.CSVDataSet
+  filepath: data/08_submissions/submission.csv

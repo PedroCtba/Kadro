@@ -1,0 +1,1 @@
+kedro run --node=Kfold10MlflowValidation --pipeline=dataScience

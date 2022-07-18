@@ -5,8 +5,6 @@ generated using Kedro 0.18.1
 import pandas as pd
 import numpy as np
 from scipy import stats
-import gc
-from sklearn.preprocessing import RobustScaler, MinMaxScaler
 from sklearn.impute import SimpleImputer
 import lightgbm as lgb
 
@@ -15,7 +13,6 @@ def train_cleaning_and_imputing(train: pd.DataFrame, train_labels: pd.DataFrame)
     # Join labels with train
     train = train.merge(train_labels, on="customer_ID", how="left")
     del train_labels
-    gc.collect()
 
     # Drop more than 70% null cols
     train = train.loc[:, train.isnull().mean() < .7]
@@ -30,8 +27,7 @@ def train_cleaning_and_imputing(train: pd.DataFrame, train_labels: pd.DataFrame)
     tr_train = pd.DataFrame(si.fit_transform(train[filteredCatCols]), columns = filteredCatCols)
     train[filteredCatCols] = tr_train[filteredCatCols]
     del tr_train
-    gc.collect()
-
+    
     # Take all nan count in numeric cols
     numericalCols = train.select_dtypes(np.number).columns
     nullSeries = train[numericalCols].isnull().sum()
@@ -55,8 +51,6 @@ def train_cleaning_and_imputing(train: pd.DataFrame, train_labels: pd.DataFrame)
         X = dataNotNull[train_set_cols]
         Y = dataNotNull[col_to_fill]
         del dataNotNull
-        gc.collect()
-        
 
         # Train the model
         lg.fit(X, Y)
@@ -71,7 +65,7 @@ def train_cleaning_and_imputing(train: pd.DataFrame, train_labels: pd.DataFrame)
     for nullC in nullCols:
         train = fillna_with_lgb(data=train, train_set_cols=noneNullCols, col_to_fill=nullC)
 
-    #Fixing date columns
+    # Fixing date columns
     train["S_2_day"] = train["S_2"].dt.dayS
     train["S_2_month"] = train["S_2"].dt.month
     train["S_2_year"] = train["S_2"].dt.year
@@ -103,8 +97,7 @@ def test_cleaning_and_imputing(test: pd.DataFrame) -> pd.DataFrame:
     tr_test = pd.DataFrame(si.fit_transform(test[filteredCatCols]), columns = filteredCatCols)
     test[filteredCatCols] = tr_test[filteredCatCols]
     del tr_test
-    gc.collect()
-
+    
     # Take all nan count in numeric cols
     numericalCols = test.select_dtypes(np.number).columns
     nullSeries = test[numericalCols].isnull().sum()
@@ -127,9 +120,7 @@ def test_cleaning_and_imputing(test: pd.DataFrame) -> pd.DataFrame:
         X = dataNotNull[test_set_cols]
         Y = dataNotNull[col_to_fill]
         del dataNotNull
-        gc.collect()
         
-
         # test the model
         lg.fit(X, Y)
 
@@ -143,13 +134,8 @@ def test_cleaning_and_imputing(test: pd.DataFrame) -> pd.DataFrame:
     for nullC in nullCols:
         test = fillna_with_lgb(data=test, test_set_cols=noneNullCols, col_to_fill=nullC)
 
-    #Fixing date columns
-    test["S_2_day"] = test["S_2"].dt.day
-    test["S_2_month"] = test["S_2"].dt.month
-    test["S_2_year"] = test["S_2"].dt.year
-
     # Groupy by customer
-    test = test.groupby(['customer_ID']).nth(-1).reset_index(drop=True)
+    test = test.groupby(['customer_ID']).nth(-1).reset_index(drop=False)
 
     # Transform ncat to numeric
     cols = ["D_63", "D_64", "D_68", "B_30", "B_38", "D_114", "D_116", "D_117", "D_120", "D_126"]
@@ -161,15 +147,13 @@ def test_cleaning_and_imputing(test: pd.DataFrame) -> pd.DataFrame:
     return test
 
 
-def make_my_features(cleaned_train: pd.DataFrame, target_col: str,  top_ratio: int) -> pd.DataFrame:
+def define_fe_process_with_train(cleaned_train: pd.DataFrame, target_col: str) -> pd.DataFrame:
     """
-    Returns the current dataframe with all feature enginerring process
+    Returns a correlation relatory that does biserial test correlation together with kruskal diff test
     """
-
     # Instantiate ratio cols making function
     def return_bivariate_test(data: pd.DataFrame, target_col: str) -> pd.DataFrame:
         def bivariateTest(data, x, binarY):
-
             # Correlation betwen binary and continuous distributions functions
             def biserialCorr(data, x, binarY):
                 # convert both variables to arrays
@@ -195,7 +179,8 @@ def make_my_features(cleaned_train: pd.DataFrame, target_col: str,  top_ratio: i
         correlations = {
             "Column": [],
             "BiCorr" : [],
-            "Kruskal": []
+            "Kruskal_st": [],
+            "Kruskal_pvalue": []
         }
 
         # For every numeric column in dataframe columns
@@ -210,7 +195,8 @@ def make_my_features(cleaned_train: pd.DataFrame, target_col: str,  top_ratio: i
                 # append the results into relatory
                 correlations["Column"].append(column)
                 correlations["BiCorr"].append(biseralCor[0])
-                correlations["Kruskal"].append(kruskal[0])
+                correlations["Kruskal_st"].append(kruskal[0])
+                correlations["Kruskal_pvalue"].append(kruskal[1])
 
             except:
                 pass
@@ -219,23 +205,42 @@ def make_my_features(cleaned_train: pd.DataFrame, target_col: str,  top_ratio: i
         correlations = pd.DataFrame(correlations)
 
         # Order DataFrame
-        correlations = correlations.sort_values(["BiCorr", "Kruskal"], ascending=[False, False])
+        correlations = correlations.sort_values(["BiCorr", "Kruskal_st"], ascending=[False, False])
+
+        # Add treshold
+        statistic = stats.chi2.ppf(1-0.05, df=1)
+        correlations["kruskal_ppf"] = statistic
+
+        # Evalute aception or not of H0
+        correlations["kruskal_reject_h0"] = 0
+        correlations.loc[correlations["Kruskal_st"] > correlations["kruskal_ppf"], "kruskal_reject_h0"] = 1
 
         return correlations
 
     # Make bivariate test
     bivariateRelatory = return_bivariate_test(data=cleaned_train, target_col=target_col)
+
+    return bivariateRelatory
+
+
+def make_my_features_at_train(cleaned_train: pd.DataFrame, correlationRelatory: pd.DataFrame, top_ratio: int) -> pd.DataFrame:
+    """
+    Returns the train dataframe with all personal feature engineering process
+    """
+    # Filter the dataset based on kruskal test aception of H0
+    colsToDrop = correlationRelatory["Column"].loc[correlationRelatory["kruskal_reject_h0"] == 0].tolist()
+    for col in colsToDrop: cleaned_train.drop(col, axis=1, inplace=True)
     
     # Make ratio columns
     for rep in range(top_ratio):
         if rep == 0:
-            correlationPlus = bivariateRelatory["Column"].iloc[rep]
-            correlationMinus = bivariateRelatory["Column"].iloc[-1]
+            correlationPlus = correlationRelatory["Column"].iloc[rep]
+            correlationMinus = correlationRelatory["Column"].iloc[-1]
 
         else:
-            correlationPlus = bivariateRelatory["Column"].iloc[rep]
+            correlationPlus = correlationRelatory["Column"].iloc[rep]
             negRep = (rep + 1) * -1
-            correlationMinus = bivariateRelatory["Column"].iloc[negRep]
+            correlationMinus = correlationRelatory["Column"].iloc[negRep]
         
         # make ratio col
         ratioName = "ratio_" + correlationPlus + "_" + correlationMinus
@@ -245,50 +250,28 @@ def make_my_features(cleaned_train: pd.DataFrame, target_col: str,  top_ratio: i
     return cleaned_train
 
 
-def use_scalers_based_on_outliers(fe_train: pd.DataFrame) -> pd.DataFrame:
-    # Take all the numerical columns
-    numericalColumns = [col for col in fe_train.columns if fe_train[col].dtype == np.number]
+def make_my_features_at_test(cleaned_test: pd.DataFrame,  correlationRelatory: pd.DataFrame, top_ratio:int) -> pd.DataFrame:
+    """
+    Returns the test dataframe with all personal feature engineering process
+    """
+    # Filter the dataset based on kruskal test aception of H0
+    colsToDrop = correlationRelatory["Column"].loc[correlationRelatory["kruskal_reject_h0"] == 0].tolist()
+    for col in colsToDrop: cleaned_test.drop(col, axis=1, inplace=True)
 
-    # Find wich cols have a good number of outliers
-    robustScaler = []
-    minMaxScaler = []
+    # Make ratio columns
+    for rep in range(top_ratio):
+        if rep == 0:
+            correlationPlus = correlationRelatory["Column"].iloc[rep]
+            correlationMinus = correlationRelatory["Column"].iloc[-1]
 
-    for ncol in numericalColumns:
-        # Calculate Q1 and Q3
-        Q1 = fe_train[ncol].quantile(0.25)
-        Q3 = fe_train[ncol].quantile(0.75)
-
-        # Count the number of outliers
-        if len(fe_train[ncol].loc[(fe_train[ncol] < Q1) | (fe_train[ncol] > Q3)]) > 2:
-            robustScaler.append(ncol)
         else:
-            minMaxScaler.append(ncol)
-    
-    # Substitue infinities with specific value
-    fe_train.replace([np.inf, -np.inf], 0, inplace=True)
-    
-    # Split train and test
-    X = fe_train[[col for col in fe_train.columns if col != "target"]]
-    Y = pd.DataFrame(fe_train["target"])
-    del fe_train
-
-    # Use robust scaler
-    r = RobustScaler()
-    X[robustScaler] = r.fit_transform(X[robustScaler])
-
-    # Use min max scaler
-    m = MinMaxScaler()
-    X[minMaxScaler] = m.fit_transform(X[minMaxScaler])
-
-    return X, Y
-
+            correlationPlus = correlationRelatory["Column"].iloc[rep]
+            negRep = (rep + 1) * -1
+            correlationMinus = correlationRelatory["Column"].iloc[negRep]
         
-def join_all_features(xtr_my_features: pd.DataFrame,
-                      xval_my_features: pd.DataFrame,
-                      xtr_others_features: pd.DataFrame,
-                      xval_others_features: pd.DataFrame,
-                      ) -> pd.DataFrame:
+        # make ratio col
+        ratioName = "ratio_" + correlationPlus + "_" + correlationMinus
+        cleaned_test[ratioName] = cleaned_test[correlationPlus] / cleaned_test[correlationMinus]
 
-    # return train, test
-    pass
-
+    # Return partitioned data
+    return cleaned_test
