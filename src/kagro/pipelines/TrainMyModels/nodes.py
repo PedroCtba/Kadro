@@ -14,7 +14,7 @@ from sklearn.preprocessing import RobustScaler, MinMaxScaler
 from sklearn.metrics import roc_auc_score, f1_score, log_loss
 import lightgbm as lgb
 import mlflow
-
+from global_functions import amex_metric
 
 def define_scalers_and_list_of_features_based_on_outliers(fe_train: pd.DataFrame):
     # Take all the numerical columns
@@ -240,39 +240,91 @@ def tune_logistic_regression_with_optuna(xtr: pd.DataFrame, ytr: pd.DataFrame,
     return final_model
 
 
+def logistic_regression_validation(fe_train: pd.DataFrame, lr_regression: pickle, robust_scaler_features_names: pd.DataFrame, min_max_scaler_features_names: pd.DataFrame) -> pd.DataFrame:
+    # Substitue infinities with specific value
+    fe_train.replace([np.inf, -np.inf], 0, inplace=True)
+
+    # Instantiate stratofoed kfold
+    sf = StratifiedKFold(n_splits=10, shuffle=True, random_state=32)
+
+    # Dict of metrics
+    metrics = {
+        "amex": [],
+        "f1": [],
+        "auc": [],
+    }
+
+    # Dict to save predictions of the model
+    predictions = {"Index": [], "Yhat": []}
+
+    # Define X and Y
+    x = fe_train[[col for col in fe_train.columns if col != "target"]]
+    y = fe_train["target"]
+
+    run_counter = 0
+    for tr_index, val_index in sf.split(x):
+        # Start mlfflow nested run
+        mlflow.start_run(run_name=f"LR Validation, Run: {run_counter}", nested=True)
+
+        # Separate train and test
+        xtr, xval = x.iloc[tr_index], x.iloc[val_index]
+        ytr, yval = y.iloc[tr_index], y.iloc[val_index]
+
+        # Fit scalers at train | Use columns defined in the past node
+        r = RobustScaler()
+        r.fit(xtr[robust_scaler_features_names["features"]])
+
+        m = MinMaxScaler()
+        m.fit(xtr[min_max_scaler_features_names["features"]])
+
+        # Apply scalers on validation
+        xval[robust_scaler_features_names["features"]] = r.transform(xval[robust_scaler_features_names["features"]])
+        xval[min_max_scaler_features_names["features"]] = m.transform(xval[min_max_scaler_features_names["features"]])
+
+        # Make yhat of logistic regresion
+        yhat_proba_lr = lr_regression.predict_proba(xval[lr_regression.features])[:, 1]
+        yhat_lr = (yhat_proba_lr > 0.5).astype(int)
+
+        # Save predictions at a xval column
+        xval["target"] = yhat_proba_lr
+        xval["prediction"] = yval
+
+        # Eval metrics
+        auc = roc_auc_score(yhat_proba_lr, yval)
+        f1 = f1_score(yhat_proba_lr, yval)
+        amex = amex_metric(pd.DataFrame(xval["target"]), pd.DataFrame(xval["prediction"]))
+
+        # Save metrics and predictions
+        metrics["amex"].append(amex)
+        metrics["auc"].append(auc)
+        metrics["f1"].append(f1)
+        predictions["Index"] += [i for i in xval.index]
+        predictions["Yhat"] += [i for i in yhat_proba_lr]
+
+        # Log metrics to mlflow
+        mlflow.log_metric("amex", amex)
+        mlflow.log_metric("auc", auc)
+        mlflow.log_metric("f1", f1)
+
+        # End nested mlflow run
+        mlflow.end_run()
+
+        # Increment run
+        run_counter += 1
+
+    # Convert predictions and metrics dicts to datafarames
+    metrics = pd.DataFrame(metrics)
+    predictions = pd.DataFrame(metrics)
+
+    # Log mean of metrics to mlflow
+    mlflow.log_metric("amex", metrics["amex"].mean())
+    mlflow.log_metric("auc", metrics["auc"].mean())
+    mlflow.log_metric("f1", metrics["f1"].mean())
+
+    # Return both model prediction and general dict of metrics
+    return metrics, predictions    
+
 def kfold_10_mlflow_validation(fe_train: pd.DataFrame, lgbm: pickle, lr_regression: pickle, robust_scaler_features_names: pd.DataFrame, min_max_scaler_features_names: pd.DataFrame) -> pd.DataFrame:
-    # def amex metric function
-    def amex_metric(y_true: pd.DataFrame, y_pred: pd.DataFrame) -> float:
-
-        def top_four_percent_captured(y_true: pd.DataFrame, y_pred: pd.DataFrame) -> float:
-            df = (pd.concat([y_true, y_pred], axis='columns')
-                .sort_values('prediction', ascending=False))
-            df['weight'] = df['target'].apply(lambda x: 20 if x==0 else 1)
-            four_pct_cutoff = int(0.04 * df['weight'].sum())
-            df['weight_cumsum'] = df['weight'].cumsum()
-            df_cutoff = df.loc[df['weight_cumsum'] <= four_pct_cutoff]
-            return (df_cutoff['target'] == 1).sum() / (df['target'] == 1).sum()
-            
-        def weighted_gini(y_true: pd.DataFrame, y_pred: pd.DataFrame) -> float:
-            df = (pd.concat([y_true, y_pred], axis='columns')
-                .sort_values('prediction', ascending=False))
-            df['weight'] = df['target'].apply(lambda x: 20 if x==0 else 1)
-            df['random'] = (df['weight'] / df['weight'].sum()).cumsum()
-            total_pos = (df['target'] * df['weight']).sum()
-            df['cum_pos_found'] = (df['target'] * df['weight']).cumsum()
-            df['lorentz'] = df['cum_pos_found'] / total_pos
-            df['gini'] = (df['lorentz'] - df['random']) * df['weight']
-            return df['gini'].sum()
-
-        def normalized_weighted_gini(y_true: pd.DataFrame, y_pred: pd.DataFrame) -> float:
-            y_true_pred = y_true.rename(columns={'target': 'prediction'})
-            return weighted_gini(y_true, y_pred) / weighted_gini(y_true, y_true_pred)
-
-        g = normalized_weighted_gini(y_true, y_pred)
-        d = top_four_percent_captured(y_true, y_pred)
-
-        return 0.5 * (g + d)
-    
     # Substitue infinities with specific value
     fe_train.replace([np.inf, -np.inf], 0, inplace=True)
 
@@ -292,7 +344,6 @@ def kfold_10_mlflow_validation(fe_train: pd.DataFrame, lgbm: pickle, lr_regressi
     # Define X and Y
     x = fe_train[[col for col in fe_train.columns if col != "target"]]
     y = fe_train["target"]
-
 
     # Do kfold validation
     kfCounter =  0
