@@ -8,17 +8,26 @@ import plotly.express as px
 from sklearn.linear_model import LogisticRegression
 import pickle
 import optuna
-from optuna.integration import LightGBMPruningCallback
-from sklearn.model_selection import KFold, StratifiedKFold
+from sklearn.model_selection import KFold, StratifiedKFold, train_test_split
 from sklearn.preprocessing import RobustScaler, MinMaxScaler
 from sklearn.metrics import roc_auc_score, f1_score, log_loss
 import lightgbm as lgb
 import mlflow
-from global_functions import amex_metric
+from ..global_functions import amex_metric
 
-def define_scalers_and_list_of_features_based_on_outliers(fe_train: pd.DataFrame):
-    # Take all the numerical columns
-    numericalColumns = [col for col in fe_train.columns if fe_train[col].dtype == np.number]
+def make_xtr_and_false_xval(fe_train: pd.DataFrame):
+    # Use 66% of known data for train, and 33% for test (This test data is the "false" xtrain, as we known the true result, but dont want to use it as part of tunning, scaling, and etc)
+    X = fe_train[[col for col in fe_train.columns if "target" not in col]]
+    Y = fe_train["target"]
+    xtr, false_xval, ytr, false_yval = train_test_split(X, Y, test_size=0.33, random_state=32)
+
+    # Return train data, and "false" test data
+    return xtr, false_xval, ytr, false_yval
+
+
+def define_scalers_and_list_of_features_based_on_outliers(xtr: pd.DataFrame):
+    # Take all the numerical columns from train
+    numericalColumns = [col for col in xtr.columns if xtr[col].dtype == np.number]
 
     # Find wich cols have a good number of outliers
     robustScalerFeatures = []
@@ -26,21 +35,19 @@ def define_scalers_and_list_of_features_based_on_outliers(fe_train: pd.DataFrame
 
     for ncol in numericalColumns:
         # Calculate Q1 and Q3
-        Q1 = fe_train[ncol].quantile(0.25)
-        Q3 = fe_train[ncol].quantile(0.75)
+        Q1 = xtr[ncol].quantile(0.25)
+        Q3 = xtr[ncol].quantile(0.75)
 
         # Count the number of outliers
-        if len(fe_train[ncol].loc[(fe_train[ncol] < Q1) | (fe_train[ncol] > Q3)]) > 2:
+        if len(xtr[ncol].loc[(xtr[ncol] < Q1) | (xtr[ncol] > Q3)]) > 2:
             robustScalerFeatures.append(ncol)
+
         else:
             minMaxScalerFeatures.append(ncol)
     
-    # Substitue infinities with specific value
-    fe_train.replace([np.inf, -np.inf], 0, inplace=True)
-    
     # Split train and test
-    X = fe_train[[col for col in fe_train.columns if col != "target"]]
-    del fe_train
+    X = xtr[[col for col in xtr.columns if col != "target"]]
+    del xtr
 
     # Fit Robust scaler and save feature names as property
     r = RobustScaler()
@@ -53,35 +60,14 @@ def define_scalers_and_list_of_features_based_on_outliers(fe_train: pd.DataFrame
     return r, m, pd.DataFrame({"features": robustScalerFeatures}), pd.DataFrame({"features": minMaxScalerFeatures})
 
 
-def use_scalers_at_train_and_test(fe_train: pd.DataFrame, fe_test: pd.DataFrame, 
-                                robust_scaler: pickle, min_max_scaler: pickle, 
-                                robust_scaler_features_names: pd.DataFrame, min_max_scaler_features_names: pd.DataFrame):
-    # Substitue infinities with 0
-    fe_train.replace([np.inf, -np.inf], 0, inplace=True)
-    fe_test.replace([np.inf, -np.inf], 0, inplace=True)
-    
-    # Define XTR and XVAL
-    XTR = fe_train[[col for col in fe_train.columns if col != "target"]]
-    YTR = pd.DataFrame(fe_train["target"])
-    XVAL = fe_test
-    del fe_train, fe_test
-
-    # Use scalers at train and test
-    XTR[robust_scaler_features_names["features"]] = robust_scaler.transform(XTR[robust_scaler_features_names["features"]])
-    XTR[min_max_scaler_features_names["features"]] = min_max_scaler.transform(XTR[min_max_scaler_features_names["features"]])
-    XVAL[robust_scaler_features_names["features"]] = robust_scaler.transform(XVAL[robust_scaler_features_names["features"]])
-    XVAL[min_max_scaler_features_names["features"]] = min_max_scaler.transform(XVAL[min_max_scaler_features_names["features"]])
-
-    return XTR, YTR, XVAL
-
-
-def tune_lgbm_with_optuna(xtr: pd.DataFrame, ytr: pd.DataFrame, fe_train: pd.DataFrame, 
-                        splits: int, robust_scaler_features_names: pd.DataFrame, 
-                        min_max_scaler_features_names: pd.DataFrame) -> pickle:
+def tune_lgbm_with_optuna(xtr: pd.DataFrame, ytr: pd.DataFrame, 
+    fe_train: pd.DataFrame, splits: int, 
+    robust_scaler_features_names: pd.DataFrame, 
+    min_max_scaler_features_names: pd.DataFrame) -> pickle:
 
     # Define optuna optimization function
-    def optimize_function(trial, data=fe_train, splits=splits) -> float:
-        # Instantiate grid of paremeters | Variable to append scores on
+    def optimize_function(trial, x=xtr, y=ytr, splits=splits) -> float:
+        # Instantiate grid of parameters | Variable to append scores on
         paramGrid = {
             "n_estimators": trial.suggest_categorical("n_estimators", [10000]),
             "learning_rate": trial.suggest_float("learning_rate", 0.01, 0.3),
@@ -102,21 +88,14 @@ def tune_lgbm_with_optuna(xtr: pd.DataFrame, ytr: pd.DataFrame, fe_train: pd.Dat
         }
         scores = np.empty(splits)
 
-        # Delete inf values from train
-        data.replace([np.inf, -np.inf], 0, inplace=True)
-
-        # Separate xtr, and ytr
-        XTR = data[[col for col in data.columns if col != "target"]]
-        YTR = data["target"]
-
         # Instantiate Kfold
         kf = KFold(n_splits=splits)
 
         # Iterate making train and test partitions
-        for idx, (tr_ind, val_ind) in enumerate (kf.split(XTR, YTR)):
+        for idx, (tr_ind, val_ind) in enumerate (kf.split(x, y)):
             # Separate train and test
-            xtr, xval = XTR.iloc[tr_ind], XTR.iloc[val_ind]
-            ytr, yval = YTR.iloc[tr_ind], YTR.iloc[val_ind]
+            xtr, xval = x.iloc[tr_ind], x.iloc[val_ind]
+            ytr, yval = y.iloc[tr_ind], y.iloc[val_ind]
 
             # Fit robust and min_max_scaler at train
             r = RobustScaler()
@@ -157,8 +136,8 @@ def tune_lgbm_with_optuna(xtr: pd.DataFrame, ytr: pd.DataFrame, fe_train: pd.Dat
 
 
 def tune_logistic_regression_with_optuna(xtr: pd.DataFrame, ytr: pd.DataFrame, 
-                                        fe_train:pd.DataFrame, splits: int, robust_scaler_features_names: pd.DataFrame, 
-                                        min_max_scaler_features_names: pd.DataFrame, correlationRelatory: pd.DataFrame):
+    fe_train:pd.DataFrame, splits: int, robust_scaler_features_names: pd.DataFrame, 
+    min_max_scaler_features_names: pd.DataFrame, correlationRelatory: pd.DataFrame):
 
     # Select list of variables from correlation dataframe, in asceding order by correaltion force, drop variables that di not rejected null H0 in kruskal
     correlationRelatory = correlationRelatory.loc[correlationRelatory["kruskal_reject_h0"] == 1]
@@ -240,7 +219,8 @@ def tune_logistic_regression_with_optuna(xtr: pd.DataFrame, ytr: pd.DataFrame,
     return final_model
 
 
-def logistic_regression_validation(fe_train: pd.DataFrame, lr_regression: pickle, robust_scaler_features_names: pd.DataFrame, min_max_scaler_features_names: pd.DataFrame) -> pd.DataFrame:
+def logistic_regression_validation(fe_train: pd.DataFrame, lr_regression: pickle, 
+    robust_scaler_features_names: pd.DataFrame, min_max_scaler_features_names: pd.DataFrame) -> pd.DataFrame:
     # Substitue infinities with specific value
     fe_train.replace([np.inf, -np.inf], 0, inplace=True)
 
@@ -255,20 +235,20 @@ def logistic_regression_validation(fe_train: pd.DataFrame, lr_regression: pickle
     }
 
     # Dict to save predictions of the model
-    predictions = {"Index": [], "Yhat": []}
+    predictions = {"lr_yhat": []}
 
     # Define X and Y
     x = fe_train[[col for col in fe_train.columns if col != "target"]]
     y = fe_train["target"]
 
     run_counter = 0
-    for tr_index, val_index in sf.split(x):
+    for tr_index, val_index in sf.split(x, y):
         # Start mlfflow nested run
         mlflow.start_run(run_name=f"LR Validation, Run: {run_counter}", nested=True)
 
         # Separate train and test
         xtr, xval = x.iloc[tr_index], x.iloc[val_index]
-        ytr, yval = y.iloc[tr_index], y.iloc[val_index]
+        yval = y.iloc[val_index]
 
         # Fit scalers at train | Use columns defined in the past node
         r = RobustScaler()
@@ -290,16 +270,15 @@ def logistic_regression_validation(fe_train: pd.DataFrame, lr_regression: pickle
         xval["prediction"] = yval
 
         # Eval metrics
-        auc = roc_auc_score(yhat_proba_lr, yval)
-        f1 = f1_score(yhat_proba_lr, yval)
+        auc = roc_auc_score(yval, yhat_proba_lr)
+        f1 = f1_score(yval, yhat_lr)
         amex = amex_metric(pd.DataFrame(xval["target"]), pd.DataFrame(xval["prediction"]))
 
         # Save metrics and predictions
         metrics["amex"].append(amex)
         metrics["auc"].append(auc)
         metrics["f1"].append(f1)
-        predictions["Index"] += [i for i in xval.index]
-        predictions["Yhat"] += [i for i in yhat_proba_lr]
+        predictions["lr_yhat"] += [i for i in yhat_proba_lr]
 
         # Log metrics to mlflow
         mlflow.log_metric("amex", amex)
@@ -324,7 +303,93 @@ def logistic_regression_validation(fe_train: pd.DataFrame, lr_regression: pickle
     # Return both model prediction and general dict of metrics
     return metrics, predictions    
 
-def kfold_10_mlflow_validation(fe_train: pd.DataFrame, lgbm: pickle, lr_regression: pickle, robust_scaler_features_names: pd.DataFrame, min_max_scaler_features_names: pd.DataFrame) -> pd.DataFrame:
+
+def lgbm_validation(fe_train: pd.DataFrame, lgbm: pickle, 
+    robust_scaler_features_names: pd.DataFrame, min_max_scaler_features_names: pd.DataFrame) -> pd.DataFrame:
+    # Substitue infinities with specific value
+    fe_train.replace([np.inf, -np.inf], 0, inplace=True)
+
+    # Instantiate stratofoed kfold
+    sf = StratifiedKFold(n_splits=10, shuffle=True, random_state=32)
+
+    # Dict of metrics
+    metrics = {
+        "amex": [],
+        "f1": [],
+        "auc": [],
+    }
+
+    # Dict to save predictions of the model
+    predictions = {"lgbm_yhat": []}
+
+    # Define X and Y
+    x = fe_train[[col for col in fe_train.columns if col != "target"]]
+    y = fe_train["target"]
+
+    run_counter = 0
+    for tr_index, val_index in sf.split(x, y):
+        # Start mlfflow nested run
+        mlflow.start_run(run_name=f"LGBM Validation, Run: {run_counter}", nested=True)
+
+        # Separate train and test
+        xtr, xval = x.iloc[tr_index], x.iloc[val_index]
+        yval =  y.iloc[val_index]
+
+        # Fit scalers at train | Use columns defined in the past node
+        r = RobustScaler()
+        r.fit(xtr[robust_scaler_features_names["features"]])
+
+        m = MinMaxScaler()
+        m.fit(xtr[min_max_scaler_features_names["features"]])
+
+        # Apply scalers on validation
+        xval[robust_scaler_features_names["features"]] = r.transform(xval[robust_scaler_features_names["features"]])
+        xval[min_max_scaler_features_names["features"]] = m.transform(xval[min_max_scaler_features_names["features"]])
+
+        # Make yhat of lgbm
+        yhat_proba_lgbm = lgbm.predict_proba(xval)[:, 1]
+        yhat_lgbm = (yhat_proba_lgbm > 0.5).astype(int)
+
+        # Save predictions at a xval column
+        xval["target"] = yval
+        xval["prediction"] = yhat_proba_lgbm
+
+        # Eval metrics
+        auc = roc_auc_score(yval, yhat_proba_lgbm)
+        f1 = f1_score(yval, yhat_lgbm)
+        amex = amex_metric(pd.DataFrame(xval["target"]), pd.DataFrame(xval["prediction"]))
+
+        # Save metrics and predictions
+        metrics["amex"].append(amex)
+        metrics["auc"].append(auc)
+        metrics["f1"].append(f1)
+        predictions["lgbm_yhat"] += [i for i in yhat_proba_lgbm]
+
+        # Log metrics to mlflow
+        mlflow.log_metric("amex", amex)
+        mlflow.log_metric("auc", auc)
+        mlflow.log_metric("f1", f1)
+
+        # End nested mlflow run
+        mlflow.end_run()
+
+        # Increment run
+        run_counter += 1
+
+    # Convert predictions and metrics dicts to datafarames
+    metrics = pd.DataFrame(metrics)
+    predictions = pd.DataFrame(metrics)
+
+    # Log mean of metrics to mlflow
+    mlflow.log_metric("amex", metrics["amex"].mean())
+    mlflow.log_metric("auc", metrics["auc"].mean())
+    mlflow.log_metric("f1", metrics["f1"].mean())
+
+    # Return both model prediction and general dict of metrics
+    return metrics, predictions
+
+
+def ensemble_validation(fe_train: pd.DataFrame, lgbm: pickle, lr_regression: pickle, robust_scaler_features_names: pd.DataFrame, min_max_scaler_features_names: pd.DataFrame) -> pd.DataFrame:
     # Substitue infinities with specific value
     fe_train.replace([np.inf, -np.inf], 0, inplace=True)
 

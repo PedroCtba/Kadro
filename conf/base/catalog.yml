@@ -38,6 +38,26 @@ fe_test:
   type: pandas.FeatherDataSet
   filepath: data/03_feature/fe_test.ftr
 
+# X train
+xtr:
+  type: pickle.PickleDataSet
+  filepath: data/04_model_ready/xtr.pkl
+
+# Y train
+ytr:
+  type: pickle.PickleDataSet
+  filepath: data/04_model_ready/ytr.pkl
+
+# False xval
+false_xval:
+  type: pickle.PickleDataSet
+  filepath: data/04_model_ready/false_xval.pkl
+
+# False yval
+false_yval:
+  type: pickle.PickleDataSet
+  filepath: data/04_model_ready/false_yval.pkl
+
 # Robust Scaler
 robust_scaler:
   type: pickle.PickleDataSet
@@ -60,26 +80,21 @@ min_max_scaler_features_names:
   type: pandas.CSVDataSet
   filepath: data/03_feature/min_max_scaler_features_names.csv
 
-# X train
-xtr:
-  type: pandas.FeatherDataSet
-  filepath: data/04_model_ready/xtr.ftr
-
-# Y train
-ytr:
-  type: pandas.FeatherDataSet
-  filepath: data/04_model_ready/ytr.ftr
-
-# X val
-xval:
-  type: pandas.FeatherDataSet
-  filepath: data/04_model_ready/xval.ftr
-
 # Tune light gbm
 tuned_lgbm:
   type: pickle.PickleDataSet
   filepath: data/05_models_and_scalers/tuned_lgbm.pkl
   backend: pickle
+
+# lgbm Metrics
+lgbm_metrics:
+  type: pandas.CSVDataSet
+  filepath: data/07_reporting/lgbm_metrics.xlsx
+
+# lgbm Predictions
+lgbm_predictions:
+  type: pandas.FeatherDataSet
+  filepath: data/07_reporting/lgbm_predictions.ftr
 
 # Tune logistic regression
 tuned_lr:
@@ -87,10 +102,20 @@ tuned_lr:
   filepath: data/05_models_and_scalers/tuned_lr.pkl
   backend: pickle
 
+# lr Metrics
+lr_metrics:
+  type: pandas.CSVDataSet
+  filepath: data/07_reporting/lr_metrics.xlsx
+
+# lr Predictions
+lr_predictions:
+  type: pandas.FeatherDataSet
+  filepath: data/07_reporting/lr_predictions.ftr
+
 # Metrics
-kfold_metrics:
+ensemble_metrics:
   type: pandas.ExcelDataSet
-  filepath: data/07_reporting/kfold_metrics.xlsx
+  filepath: data/07_reporting/ensemble_metrics.xlsx
 
 # Kaggle submission
 submission:

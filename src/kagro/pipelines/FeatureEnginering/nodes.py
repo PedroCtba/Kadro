@@ -8,7 +8,6 @@ from scipy import stats
 from sklearn.impute import SimpleImputer
 import lightgbm as lgb
 
-
 def train_cleaning_and_imputing(train: pd.DataFrame, train_labels: pd.DataFrame) -> pd.DataFrame:
     # Join labels with train
     train = train.merge(train_labels, on="customer_ID", how="left")
@@ -246,6 +245,9 @@ def make_my_features_at_train(cleaned_train: pd.DataFrame, correlationRelatory: 
         ratioName = "ratio_" + correlationPlus + "_" + correlationMinus
         cleaned_train[ratioName] = cleaned_train[correlationPlus] / cleaned_train[correlationMinus]
 
+    # Substitue infinities with 0
+    cleaned_train.replace([np.inf, -np.inf], 0, inplace=True)
+
     # Return cleaned train
     return cleaned_train
 
@@ -273,5 +275,8 @@ def make_my_features_at_test(cleaned_test: pd.DataFrame,  correlationRelatory: p
         ratioName = "ratio_" + correlationPlus + "_" + correlationMinus
         cleaned_test[ratioName] = cleaned_test[correlationPlus] / cleaned_test[correlationMinus]
 
-    # Return partitioned data
+    # Substitue infinities with 0
+    cleaned_test.replace([np.inf, -np.inf], 0, inplace=True)
+
+    # Return cleaned test
     return cleaned_test
