@@ -86,11 +86,6 @@ tuned_lgbm:
   filepath: data/05_models_and_scalers/tuned_lgbm.pkl
   backend: pickle
 
-# lgbm Metrics
-lgbm_metrics:
-  type: pandas.CSVDataSet
-  filepath: data/07_reporting/lgbm_metrics.xlsx
-
 # lgbm Predictions
 lgbm_predictions:
   type: pandas.FeatherDataSet
@@ -101,11 +96,6 @@ tuned_lr:
   type: pickle.PickleDataSet
   filepath: data/05_models_and_scalers/tuned_lr.pkl
   backend: pickle
-
-# lr Metrics
-lr_metrics:
-  type: pandas.CSVDataSet
-  filepath: data/07_reporting/lr_metrics.xlsx
 
 # lr Predictions
 lr_predictions:

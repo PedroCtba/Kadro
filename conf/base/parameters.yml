@@ -4,5 +4,11 @@ target_col: "target"
 # Top ratio parameters
 top_ratio: 10
 
-# Splits for optuna
+# Splits for optuna hyperparameter bayesian tunning
 splits_for_optuna: 5
+
+# Trials of optuna hyperparameter bayesian tunning
+trials_for_optuna: 30
+
+# Splits for validation
+splits_for_validation: 10
