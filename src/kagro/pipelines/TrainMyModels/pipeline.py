@@ -40,17 +40,17 @@ def create_pipeline(**kwargs) -> Pipeline:
 
         node(
             func=lgbm_validation,
-            inputs=["false_xval", "false_yval", "tuned_lgbm", "robust_scaler", "robust_scaler_features_names", "min_max_scaler", "min_max_scaler_features_names"],
+            inputs=["false_xval", "false_yval", "tuned_lgbm", "params:splits_for_validation", "robust_scaler", "robust_scaler_features_names", "min_max_scaler", "min_max_scaler_features_names"],
             outputs="lgbm_predictions", 
             name="LgbmValidation"
         ),
 
-        node(
-            func=logistic_regression_validation,
-            inputs=["false_xval", "false_yval", "tuned_lr", "params:splits_for_validation", "robust_scaler", "robust_scaler_features_names", "min_max_scaler", "min_max_scaler_features_names"],
-            outputs="lr_predictions",
-            name="LogisticRegressionValidation"
-        ),
+        # node(
+        #     func=logistic_regression_validation,
+        #     inputs=["false_xval", "false_yval", "tuned_lr", "params:splits_for_validation", "robust_scaler", "robust_scaler_features_names", "min_max_scaler", "min_max_scaler_features_names"],
+        #     outputs="lr_predictions",
+        #     name="LogisticRegressionValidation"
+        # ),
 
         node(
             func=ensemble_validation,

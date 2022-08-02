@@ -266,16 +266,22 @@ def lgbm_validation(false_xval: pd.DataFrame, false_yval:pd.DataFrame, lgbm: pic
     # Define sets of index for xval testing
     index_lists = []
     val_size = int(len(false_yval) / splits_for_validation)
-    for split in splits_for_validation:
+    for split in range(splits_for_validation):
         # Make current index list | append it to index_lists
-        _index = [randint(0, len(false_yval) -1) for _ in val_size]
+        _index = [randint(0, len(false_yval) -1) for _ in range(val_size)]
         index_lists.append(_index)
 
     # Iterate all the validation sets
     lgbm_predictions = {"index": [], "predictions": []}
+
+    # Instantiate metrics
+    tot_amex = 0
+    tot_auc = 0
+    tot_f1 = 0
+
     for val_rep, val_set in enumerate(index_lists):
         # Start mlflow nested run
-        mlflow.start_run(f"LGBM {val_rep} validation")
+        mlflow.start_run(run_name=f"LGBM {str(val_rep)} validation", nested=True)
 
         # Separate train and test data
         _xval, _yval = false_xval.iloc[val_set], false_yval.iloc[val_set]
@@ -289,19 +295,24 @@ def lgbm_validation(false_xval: pd.DataFrame, false_yval:pd.DataFrame, lgbm: pic
         yhat_not_proba = (yhat_proba > 0.5).astype(int)
 
         # Add predicitons to validaiton dataframe (to evaluate amex metric)
-        false_xval["yhat"] = yhat_not_proba
-        false_xval["prediction"] = yhat_proba
-        false_xval["target"] = _yval
+        _xval["yhat"] = yhat_not_proba
+        _xval["prediction"] = yhat_proba
+        _xval["target"] = _yval
 
         # Eval metrics
         auc = roc_auc_score(_yval, yhat_proba)
         f1 = f1_score(_yval, yhat_not_proba)
-        amex = amex_metric(pd.DataFrame(false_xval["target"]), pd.DataFrame(false_xval["prediction"]))
+        amex = amex_metric(pd.DataFrame(_xval["target"]), pd.DataFrame(_xval["prediction"]))
 
         # Log metrics to mlflow
         mlflow.log_metric("amex", amex)
         mlflow.log_metric("auc", auc)
         mlflow.log_metric("f1", f1)
+
+        # Sum metrics at variables, log meand latter to mlflow
+        tot_amex += amex
+        tot_auc += auc
+        tot_f1 += f1
 
         # Save model predictions
         lgbm_predictions["index"] += [i for i in _xval.index]
@@ -309,6 +320,14 @@ def lgbm_validation(false_xval: pd.DataFrame, false_yval:pd.DataFrame, lgbm: pic
 
         # End mlflow run
         mlflow.end_run()
+
+    # Log mean of all metrics at mlflow
+    mlflow.log_metric("amex", tot_amex/val_rep+1)
+    mlflow.log_metric("auc", tot_auc/val_rep+1)
+    mlflow.log_metric("f1", tot_f1/val_rep+1)
+
+    # Convert model predictions to dataframe
+    lgbm_predictions = pd.DataFrame(lgbm_predictions)
 
     # Return model predictions (See corelations with other predictions latter)
     return lgbm_predictions
