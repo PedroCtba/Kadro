@@ -5,15 +5,19 @@ generated using Kedro 0.18.1
 import pandas as pd
 import numpy as np
 from random import randint
-from sklearn.linear_model import LogisticRegression
 import pickle
 import optuna
+import lightgbm as lgb
+import mlflow
+
+from sklearn.linear_model import LogisticRegression
 from sklearn.model_selection import KFold, train_test_split
 from sklearn.preprocessing import RobustScaler, MinMaxScaler
 from sklearn.metrics import roc_auc_score, f1_score, log_loss
-import lightgbm as lgb
-import mlflow
+
+import tensorflow as tf
 from ..global_functions import amex_metric
+
 
 def make_xtr_and_false_xval(fe_train: pd.DataFrame):
     # Use 66% of known data for train, and 33% for test (This test data is the "false" xtrain, as we known the true result, but dont want to use it as part of tunning, scaling, and etc)
@@ -225,41 +229,119 @@ def tune_logistic_regression_with_optuna(xtr: pd.DataFrame, ytr: pd.DataFrame,
     return final_model
 
 
-def logistic_regression_validation(false_xval: pd.DataFrame, false_yval:pd.DataFrame, lr_regression: pickle,
+def train_neural_network(xtr: pd.DataFrame, ytr: pd.DataFrame,
+    robust_scaler: pickle, robust_scaler_features_names: pd.DataFrame, 
+    min_max_scaler: pickle, min_max_scaler_features_names: pd.DataFrame) -> pickle:
+    # Def funcitons to return model
+    def make_neural_network():
+        # Input layer
+        inp = tf.keras.layers.Input((xtr.shape[1], ))
+
+        # Make hidden layer
+        hid = tf.keras.layers.Dense(int(xtr.shape[1]/2), activation="relu")(inp)
+
+        # Make output layer
+        out = tf.keras.layers.Dense(1, activation="sigmoid")(hid)
+
+        # Make model
+        nn = tf.keras.Model(inp, out)
+        opt = tf.keras.optimizers.Adam(learning_rate=0.001)
+        loss = tf.keras.losses.BinaryCrossentropy()
+        nn.compile(loss=loss, optimizer = opt)
+
+        return nn
+    
+    # Use mdethod to make model
+    nn = make_neural_network()
+    
+    # Make early stopping mechanism
+    es = tf.keras.callbacks.EarlyStopping(monitor="val_loss", min_delta=0.001, patience=10, mode="min", restore_best_weights=True)
+
+    # Scale the training data
+    xtr[robust_scaler_features_names["features"]] = robust_scaler.transform(xtr[robust_scaler_features_names["features"]])
+    xtr[min_max_scaler_features_names["features"]] = min_max_scaler.transform(xtr[min_max_scaler_features_names["features"]])
+
+    # Fit neural network
+    nn = nn.fit(xtr, ytr, epochs=200, shuffle=True, batch_size=1, callbacks=[es])
+
+
+def logistic_regression_validation(false_xval: pd.DataFrame, false_yval:pd.DataFrame, 
+    lr_regression: pickle, splits_for_validation: int,
     robust_scaler: pickle, robust_scaler_features_names: pd.DataFrame,
     min_max_scaler: pickle, min_max_scaler_features_names: pd.DataFrame) -> pd.DataFrame:
 
-    # Transform false xval with scalers | Dont fit since the model is not prepared for a not know distribution
-    false_xval[robust_scaler_features_names["features"]] = robust_scaler.transform(false_xval[robust_scaler_features_names["features"]])
-    false_xval[min_max_scaler_features_names["features"]] = min_max_scaler.transform(false_xval[min_max_scaler_features_names["features"]])
+    # Define sets of index for xval testing
+    index_lists = []
+    val_size = int(len(false_yval) / splits_for_validation)
+    for split in range(splits_for_validation):
+        # Make current index list | append it to index_lists
+        _index = [randint(0, len(false_yval) -1) for _ in range(val_size)]
+        index_lists.append(_index)
 
-    # Predict using trained logistic regression
-    yhat_proba = lr_regression.predict_proba(false_xval[lr_regression.features])[:, 1]
-    yhat_not_proba = (yhat_proba > 0.5).astype(int)
+    # Iterate all the validation sets
+    lr_predictions = {"index": [], "predictions": []}
 
-    # Save model prediciton at dataframe
-    lr_predictions = pd.DataFrame({"lr_predictions": [value for value in yhat_proba]})
+    # Instantiate metrics
+    tot_amex = 0
+    tot_auc = 0
+    tot_f1 = 0
 
-    # Add predicitons to validaiton dataframe (to evaluate amex metric)
-    false_xval["yhat"] = yhat_not_proba
-    false_xval["prediction"] = yhat_proba
-    false_xval["target"] = false_yval
+    for val_rep, val_set in enumerate(index_lists):
+        # Start mlflow nested run
+        mlflow.start_run(run_name=f"Log Regresison {str(val_rep)} validation", nested=True)
 
-    # Eval metrics
-    auc = roc_auc_score(false_yval, yhat_proba)
-    f1 = f1_score(false_yval, yhat_not_proba)
-    amex = amex_metric(pd.DataFrame(false_xval["target"]), pd.DataFrame(false_xval["prediction"]))
+        # Separate train and test data
+        _xval, _yval = false_xval.iloc[val_set], false_yval.iloc[val_set]
 
-    # Log metrics to mlflow
-    mlflow.log_metric("amex", amex)
-    mlflow.log_metric("auc", auc)
-    mlflow.log_metric("f1", f1)
+        # Transform false xval with scalers | Dont fit since the model is not prepared for a not know distribution
+        _xval[robust_scaler_features_names["features"]] = robust_scaler.transform(_xval[robust_scaler_features_names["features"]])
+        _xval[min_max_scaler_features_names["features"]] = min_max_scaler.transform(_xval[min_max_scaler_features_names["features"]])
+
+        # Predict using trained logistic regression
+        yhat_proba = lr_regression.predict_proba(_xval[lr_regression.features])[:, 1]
+        yhat_not_proba = (yhat_proba > 0.5).astype(int)
+
+        # Add predicitons to validaiton dataframe (to evaluate amex metric)
+        _xval["yhat"] = yhat_not_proba
+        _xval["prediction"] = yhat_proba
+        _xval["target"] = _yval
+
+        # Eval metrics
+        auc = roc_auc_score(_yval, yhat_proba)
+        f1 = f1_score(_yval, yhat_not_proba)
+        amex = amex_metric(pd.DataFrame(_xval["target"]), pd.DataFrame(_xval["prediction"]))
+
+        # Log metrics to mlflow
+        mlflow.log_metric("amex", amex)
+        mlflow.log_metric("auc", auc)
+        mlflow.log_metric("f1", f1)
+
+        # Sum metrics at variables, log meand latter to mlflow
+        tot_amex += amex
+        tot_auc += auc
+        tot_f1 += f1
+
+        # Save model predictions
+        lr_predictions["index"] += [i for i in _xval.index]
+        lr_predictions["predictions"] += [i for i in yhat_proba]
+
+        # End mlflow run
+        mlflow.end_run()
+
+    # Log mean of all metrics at mlflow
+    mlflow.log_metric("amex", tot_amex/(val_rep+1))
+    mlflow.log_metric("auc", tot_auc/(val_rep+1))
+    mlflow.log_metric("f1", tot_f1/(val_rep+1))
+
+    # Convert model predictions to dataframe
+    lr_predictions = pd.DataFrame(lr_predictions)
 
     # Return model predictions (See corelations with other predictions latter)
     return lr_predictions
 
 
-def lgbm_validation(false_xval: pd.DataFrame, false_yval:pd.DataFrame, lgbm: pickle, splits_for_validation: int,
+def lgbm_validation(false_xval: pd.DataFrame, false_yval:pd.DataFrame, 
+    lgbm: pickle, splits_for_validation: int,
     robust_scaler: pickle, robust_scaler_features_names: pd.DataFrame,
     min_max_scaler: pickle, min_max_scaler_features_names: pd.DataFrame) -> pd.DataFrame:
 
@@ -322,9 +404,9 @@ def lgbm_validation(false_xval: pd.DataFrame, false_yval:pd.DataFrame, lgbm: pic
         mlflow.end_run()
 
     # Log mean of all metrics at mlflow
-    mlflow.log_metric("amex", tot_amex/val_rep+1)
-    mlflow.log_metric("auc", tot_auc/val_rep+1)
-    mlflow.log_metric("f1", tot_f1/val_rep+1)
+    mlflow.log_metric("amex", tot_amex/(val_rep+1))
+    mlflow.log_metric("auc", tot_auc/(val_rep+1))
+    mlflow.log_metric("f1", tot_f1/(val_rep+1))
 
     # Convert model predictions to dataframe
     lgbm_predictions = pd.DataFrame(lgbm_predictions)
@@ -333,7 +415,8 @@ def lgbm_validation(false_xval: pd.DataFrame, false_yval:pd.DataFrame, lgbm: pic
     return lgbm_predictions
 
 
-def ensemble_validation(false_xval: pd.DataFrame, false_yval:pd.DataFrame, lgbm: pickle, lr_regression: pickle,
+def ensemble_validation(false_xval: pd.DataFrame, false_yval:pd.DataFrame, 
+    lgbm: pickle, lr_regression: pickle,
     robust_scaler: pickle, robust_scaler_features_names: pd.DataFrame, 
     min_max_scaler: pickle, min_max_scaler_features_names: pd.DataFrame) -> pd.DataFrame:
 

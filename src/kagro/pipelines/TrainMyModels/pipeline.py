@@ -3,7 +3,7 @@ This is a boilerplate pipeline 'TrainMyModels'
 generated using Kedro 0.18.1
 """
 from kedro.pipeline import Pipeline, node, pipeline
-from .nodes import tune_lgbm_with_optuna, tune_logistic_regression_with_optuna, make_xtr_and_false_xval,\
+from .nodes import tune_lgbm_with_optuna, tune_logistic_regression_with_optuna, train_neural_network, make_xtr_and_false_xval,\
     ensemble_validation, define_scalers_and_list_of_features_based_on_outliers, \
     make_kaggle_submission, logistic_regression_validation, lgbm_validation
 
@@ -39,18 +39,25 @@ def create_pipeline(**kwargs) -> Pipeline:
         ),
 
         node(
+            func=train_neural_network,
+            inputs=["xtr", "ytr", "robust_scaler", "robust_scaler_features_names", "min_max_scaler", "min_max_scaler_features_names"],
+            outputs="tuned_nn", 
+            name="TuneNN"
+        ),
+
+        node(
             func=lgbm_validation,
             inputs=["false_xval", "false_yval", "tuned_lgbm", "params:splits_for_validation", "robust_scaler", "robust_scaler_features_names", "min_max_scaler", "min_max_scaler_features_names"],
             outputs="lgbm_predictions", 
             name="LgbmValidation"
         ),
 
-        # node(
-        #     func=logistic_regression_validation,
-        #     inputs=["false_xval", "false_yval", "tuned_lr", "params:splits_for_validation", "robust_scaler", "robust_scaler_features_names", "min_max_scaler", "min_max_scaler_features_names"],
-        #     outputs="lr_predictions",
-        #     name="LogisticRegressionValidation"
-        # ),
+        node(
+            func=logistic_regression_validation,
+            inputs=["false_xval", "false_yval", "tuned_lr", "params:splits_for_validation", "robust_scaler", "robust_scaler_features_names", "min_max_scaler", "min_max_scaler_features_names"],
+            outputs="lr_predictions",
+            name="LogisticRegressionValidation"
+        ),
 
         node(
             func=ensemble_validation,
