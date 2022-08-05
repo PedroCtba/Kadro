@@ -40,7 +40,7 @@ def create_pipeline(**kwargs) -> Pipeline:
 
         node(
             func=train_neural_network,
-            inputs=["xtr", "ytr", "robust_scaler", "robust_scaler_features_names", "min_max_scaler", "min_max_scaler_features_names"],
+            inputs=["xtr", "ytr", "false_xval", "false_yval", "robust_scaler", "robust_scaler_features_names", "min_max_scaler", "min_max_scaler_features_names"],
             outputs="tuned_nn", 
             name="TuneNN"
         ),

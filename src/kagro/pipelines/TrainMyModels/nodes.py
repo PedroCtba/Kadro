@@ -65,7 +65,7 @@ def define_scalers_and_list_of_features_based_on_outliers(xtr: pd.DataFrame):
 
 
 def tune_lgbm_with_optuna(xtr: pd.DataFrame, ytr: pd.DataFrame, splits: int, trials: int, 
-    robust_scaler: pickle, robust_scaler_features_names: pd.DataFrame, 
+    robust_scaler: pickle, robust_scaler_features_names: pd.DataFrame,
     min_max_scaler: pickle, min_max_scaler_features_names: pd.DataFrame) -> pickle:
     
     # Define optuna optimization function
@@ -229,10 +229,12 @@ def tune_logistic_regression_with_optuna(xtr: pd.DataFrame, ytr: pd.DataFrame,
     return final_model
 
 
-def train_neural_network(xtr: pd.DataFrame, ytr: pd.DataFrame,
+def train_neural_network(xtr: pd.DataFrame, ytr: pd.DataFrame, 
+    false_xval: pd.DataFrame, false_yval:pd.DataFrame,
     robust_scaler: pickle, robust_scaler_features_names: pd.DataFrame, 
     min_max_scaler: pickle, min_max_scaler_features_names: pd.DataFrame) -> pickle:
-    # Def funcitons to return model
+
+    # Def functions to return model
     def make_neural_network():
         # Input layer
         inp = tf.keras.layers.Input((xtr.shape[1], ))
@@ -251,18 +253,26 @@ def train_neural_network(xtr: pd.DataFrame, ytr: pd.DataFrame,
 
         return nn
     
-    # Use mdethod to make model
+    # Use method to make model
     nn = make_neural_network()
-    
-    # Make early stopping mechanism
-    es = tf.keras.callbacks.EarlyStopping(monitor="val_loss", min_delta=0.001, patience=10, mode="min", restore_best_weights=True)
 
     # Scale the training data
     xtr[robust_scaler_features_names["features"]] = robust_scaler.transform(xtr[robust_scaler_features_names["features"]])
     xtr[min_max_scaler_features_names["features"]] = min_max_scaler.transform(xtr[min_max_scaler_features_names["features"]])
 
+    # Scale the validation data
+    false_xval[robust_scaler_features_names["features"]] = robust_scaler.transform(false_xval[robust_scaler_features_names["features"]])
+    false_xval[min_max_scaler_features_names["features"]] = min_max_scaler.transform(false_xval[min_max_scaler_features_names["features"]])
+
     # Fit neural network
-    nn = nn.fit(xtr, ytr, epochs=200, shuffle=True, batch_size=1, callbacks=[es])
+    xtr = np.array(xtr)
+    ytr = np.ravel(ytr)
+    false_xval = np.array(false_xval)
+    false_yval = np.ravel(false_yval)
+
+    nn = nn.fit(xtr, ytr, validation_data=(false_xval, false_yval), epochs=50, shuffle=True, batch_size=1)
+
+    return nn
 
 
 def logistic_regression_validation(false_xval: pd.DataFrame, false_yval:pd.DataFrame, 

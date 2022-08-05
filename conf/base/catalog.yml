@@ -102,6 +102,12 @@ lr_predictions:
   type: pandas.FeatherDataSet
   filepath: data/07_reporting/lr_predictions.ftr
 
+# Tuned neural network
+tuned_nn:
+  type: pickle.PickleDataSet
+  filepath: data/05_models_and_scalers/tuned_nn.pkl
+  backend: pickle
+
 # Metrics
 ensemble_metrics:
   type: pandas.ExcelDataSet
