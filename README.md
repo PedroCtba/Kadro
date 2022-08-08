@@ -1,5 +1,1 @@
-# Kedro
-
-## Overview
-
-This is a Kedro project, which was generated using `Kedro 0.18.1`.
+This is a Kedro project, designed to compete at the american express challenge at kaggle
